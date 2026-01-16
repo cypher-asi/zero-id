@@ -1,0 +1,38 @@
+[package]
+name = "zero-auth-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# Database
+rocksdb = { workspace = true }
+
+# Async
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# Serialization
+bincode = { workspace = true }
+serde = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# UUID
+uuid = { workspace = true }
+
+# Tracing
+tracing = { workspace = true }
+
+# Testing utilities (needed by other crates' tests)
+tempfile = { workspace = true }
+
+[dev-dependencies]
+
+[lib]
+name = "zero_auth_storage"
+path = "src/lib.rs"

@@ -1,0 +1,41 @@
+[package]
+name = "zero-auth-identity-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# Internal dependencies
+zero-auth-crypto = { path = "../zero-auth-crypto" }
+zero-auth-storage = { path = "../zero-auth-storage" }
+zero-auth-policy = { path = "../zero-auth-policy" }
+
+# Async
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+bincode = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# UUID
+uuid = { workspace = true }
+
+# Tracing
+tracing = { workspace = true }
+
+# Utilities
+bitflags = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lib]
+name = "zero_auth_identity_core"
+path = "src/lib.rs"

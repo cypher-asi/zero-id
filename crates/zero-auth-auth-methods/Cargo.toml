@@ -1,0 +1,65 @@
+[package]
+name = "zero-auth-auth-methods"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# Internal dependencies
+zero-auth-crypto = { path = "../zero-auth-crypto" }
+zero-auth-storage = { path = "../zero-auth-storage" }
+zero-auth-policy = { path = "../zero-auth-policy" }
+zero-auth-identity-core = { path = "../zero-auth-identity-core" }
+
+# Async
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# Serialization
+bincode = { workspace = true }
+serde = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# UUID
+uuid = { workspace = true }
+
+# Password hashing
+argon2 = { workspace = true }
+password-hash = { workspace = true }
+
+# TOTP/MFA
+totp-rs = "5.6"
+
+# Random number generation
+rand = { workspace = true }
+
+# Hex encoding
+hex = { workspace = true }
+
+# Tracing
+tracing = { workspace = true }
+
+# EVM wallet support (SECP256k1)
+k256 = { version = "0.13", features = ["ecdsa", "ecdsa-core", "sha256"] }
+sha3 = "0.10"  # For keccak256
+
+# HTTP client for OAuth/OIDC
+reqwest = { version = "0.11", features = ["json"] }
+serde_json = { workspace = true }
+url = "2.5"
+
+# JWT validation for OIDC
+jsonwebtoken = "9.2"
+base64 = "0.21"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lib]
+name = "zero_auth_auth_methods"
+path = "src/lib.rs"
