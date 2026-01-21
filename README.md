@@ -12,13 +12,13 @@ zero-auth is a modular authentication system built on the principle that cryptog
 2. **Hierarchical Key Derivation**: All keys are deterministically derived from the Neural Key using HKDF-SHA256
 3. **Per-Device Operations**: Daily authentication uses Machine Keys, not root material
 4. **Threshold Recovery**: Account recovery via 3-of-5 Neural Shards using Shamir Secret Sharing
-5. **Protocol Agnostic**: Multiple authentication methods (cryptographic, email, OAuth, wallet)
+5. **Protocol Agnostic**: Multiple authentication methods (cryptographic, email, OAuth, blockchain wallets)
 
 ## How the System Works
 
 ### The Neural Key
 
-The Neural Key is a 32-byte (256-bit) cryptographically random value that serves as the root secret for an identity. It has the following properties:
+The Neural Key is a 32-byte (256-bit) high entropy cryptographic value that serves as the root secret for an identity. It has the following properties:
 
 - Generated client-side using a cryptographically secure random number generator
 - Never transmitted over the network or stored on the server
@@ -58,7 +58,17 @@ Neural Key (32 bytes, client-only)
             Purpose: Diffie-Hellman key exchange, encrypting data
 ```
 
-Domain separation ensures that even if two derivations use the same input, they produce different outputs if their purposes differ.
+**Notation:**
+
+| Term | Description |
+|------|-------------|
+| `Domain` | The `info` parameter passed to HKDF, which determines the derived key's uniqueness |
+| `\|\|` | Byte concatenation |
+| `identity_id` | UUID assigned to the identity at creation time |
+| `machine_id` | UUID assigned to each enrolled device |
+| `epoch` | Integer that increments during key rotation ceremonies, producing new key material |
+
+**Domain separation** ensures that even though all keys are derived from the same Neural Key, each derivation produces a completely different output because the HKDF `info` parameter includes a unique domain string (e.g., `"cypher:auth:identity:v1"` vs `"cypher:auth:mfa-kek:v1"`). This prevents accidentally deriving the same key for different purposes, which would be a security vulnerability. The contextual identifiers (identity_id, machine_id, epoch) further ensure uniqueness within each key type.
 
 ### Machine Keys
 
@@ -86,7 +96,7 @@ Machine Key capabilities include:
 1. **Creation**: Client generates Neural Key, derives keys, sends public keys to server
 2. **Enrollment**: Additional devices are enrolled by deriving new Machine Keys
 3. **Authentication**: Machine Keys prove identity via challenge-response
-4. **Key Rotation**: Neural Key can be rotated with approval from multiple devices
+4. **Key Rotation**: Neural Key can be replaced, requiring a signature from the current Identity Signing Key, MFA verification, and approval from 2+ enrolled devices
 5. **Recovery**: If Neural Key is lost, reconstruct from 3 of 5 recovery shards
 6. **Revocation**: Individual devices or entire identity can be revoked
 
@@ -115,18 +125,21 @@ Upon successful authentication, the server issues:
 
 Token security features:
 
-- JWT signing keys derived from a server-side master key with epoch rotation
+- JWT signing keys are derived from a server-side master key using HKDF-SHA256 with epoch rotation
+- The master key is designed to be stored in a Trusted Execution Environment (TEE); even if compromised, it cannot access or derive user keys since Neural Keys never leave client devices
 - Refresh token rotation on each use (old tokens become invalid)
 - Reuse detection: if a revoked refresh token is used, all tokens in that family are revoked
 - Public keys published at `/.well-known/jwks.json` for external validation
 
 ### Recovery via Shamir Secret Sharing
 
-The Neural Key is split into 5 shares using 3-of-5 Shamir Secret Sharing:
+The Neural Key is split into 5 Neural Shards using 3-of-5 Shamir Secret Sharing:
 
-- Any 3 shares can reconstruct the original Neural Key
-- Fewer than 3 shares reveal absolutely no information about the key
-- Shares should be distributed to trusted custodians or stored in separate secure locations
+- Any 3 shards can reconstruct the original Neural Key
+- Fewer than 3 shards reveal absolutely no information about the key
+- Shards should be distributed to trusted custodians or stored in separate secure locations
+
+**Local shard encryption:** Two Neural Shards are stored encrypted on the client device using a password-derived key. The encryption key is derived from the user's password using Argon2id (64MB memory, 3 iterations), and the shards are encrypted with XChaCha20-Poly1305 AEAD. This allows users to recover locally if they remember their password, while the remaining 3 shards can be distributed to trusted custodians for disaster recovery.
 
 Recovery process:
 
@@ -148,6 +161,8 @@ zero-auth supports multiple authentication methods:
 | Wallet | EVM signatures (EIP-191, SECP256k1) | Blockchain-based authentication |
 | MFA | TOTP with backup codes | Additional security for sensitive operations |
 
+The authentication system is designed to be extensible with OAuth and OIDC, allowing integration with any range of trusted identity providers. New providers can be added as modules to the system without modifying the core authentication logic.
+
 All methods can be combined with MFA for high-security operations.
 
 ## Architecture
@@ -157,7 +172,7 @@ The system is composed of modular crates:
 | Crate | Purpose |
 |-------|---------|
 | `zero-auth-crypto` | Cryptographic primitives (Ed25519, X25519, XChaCha20-Poly1305, HKDF, Argon2id) |
-| `zero-auth-storage` | RocksDB abstraction layer with column families |
+| `zero-auth-storage` | RocksDB abstraction layer with column families on server |
 | `zero-auth-policy` | Policy engine for authorization and rate limiting |
 | `zero-auth-identity-core` | Identity and Machine Key management |
 | `zero-auth-methods` | Authentication methods (Machine Key, Email, OAuth, Wallet, MFA) |
