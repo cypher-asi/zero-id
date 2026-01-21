@@ -7,4 +7,5 @@ pub mod identity;
 pub mod integrations;
 pub mod machines;
 pub mod mfa;
+pub mod namespaces;
 pub mod sessions;

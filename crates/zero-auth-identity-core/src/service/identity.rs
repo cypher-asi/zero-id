@@ -7,7 +7,7 @@ use zero_auth_crypto::{canonicalize_identity_creation_message, verify_signature}
 use zero_auth_policy::PolicyEngine;
 use zero_auth_storage::{
     traits::BatchExt, Storage, CF_IDENTITIES, CF_IDENTITY_NAMESPACE_MEMBERSHIPS, CF_MACHINE_KEYS,
-    CF_MACHINE_KEYS_BY_IDENTITY, CF_NAMESPACES,
+    CF_MACHINE_KEYS_BY_IDENTITY, CF_NAMESPACES, CF_NAMESPACES_BY_IDENTITY,
 };
 
 use super::IdentityCoreService;
@@ -187,6 +187,10 @@ where
             &membership_key,
             membership,
         )?;
+
+        // Add namespaces-by-identity index for efficient list_namespaces queries
+        let ns_index_key = (identity.identity_id, namespace.namespace_id);
+        batch.put(CF_NAMESPACES_BY_IDENTITY, &ns_index_key, &())?;
 
         batch.put(CF_MACHINE_KEYS, &machine_key.machine_id, machine_key)?;
 

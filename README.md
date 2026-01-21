@@ -538,6 +538,22 @@ cargo llvm-cov --workspace --html
 | `/v1/machines` | GET | List enrolled devices |
 | `/v1/machines/:id` | DELETE | Revoke device access |
 
+### Namespace Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/namespaces` | POST | Create new namespace |
+| `/v1/namespaces` | GET | List namespaces for authenticated identity |
+| `/v1/namespaces/:id` | GET | Get namespace details |
+| `/v1/namespaces/:id` | PATCH | Update namespace (owner only) |
+| `/v1/namespaces/:id/deactivate` | POST | Deactivate namespace (owner only) |
+| `/v1/namespaces/:id/reactivate` | POST | Reactivate namespace (owner only) |
+| `/v1/namespaces/:id` | DELETE | Delete namespace (owner only, must be empty) |
+| `/v1/namespaces/:id/members` | GET | List namespace members |
+| `/v1/namespaces/:id/members` | POST | Add member (owner/admin) |
+| `/v1/namespaces/:id/members/:identity_id` | PATCH | Update member role (owner/admin) |
+| `/v1/namespaces/:id/members/:identity_id` | DELETE | Remove member (owner/admin) |
+
 ### Authentication
 
 | Endpoint | Method | Description |

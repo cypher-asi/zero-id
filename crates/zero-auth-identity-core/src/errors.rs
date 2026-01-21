@@ -64,6 +64,47 @@ pub enum IdentityCoreError {
         namespace_id: Uuid,
     },
 
+    /// Namespace not found
+    #[error("Namespace not found: {0}")]
+    NamespaceNotFound(Uuid),
+
+    /// Namespace already exists
+    #[error("Namespace already exists: {0}")]
+    NamespaceAlreadyExists(Uuid),
+
+    /// Insufficient permissions for namespace operation
+    #[error("Insufficient permissions: {role:?} cannot {action}")]
+    InsufficientPermissions {
+        role: crate::types::NamespaceRole,
+        action: String,
+    },
+
+    /// Cannot remove namespace owner
+    #[error("Cannot remove namespace owner")]
+    CannotRemoveOwner,
+
+    /// Member already exists in namespace
+    #[error("Member already exists: identity {identity_id} in namespace {namespace_id}")]
+    MemberAlreadyExists {
+        identity_id: Uuid,
+        namespace_id: Uuid,
+    },
+
+    /// Member not found in namespace
+    #[error("Member not found: identity {identity_id} in namespace {namespace_id}")]
+    MemberNotFound {
+        identity_id: Uuid,
+        namespace_id: Uuid,
+    },
+
+    /// Namespace has active members, cannot delete
+    #[error("Namespace has active members, cannot delete: {0}")]
+    NamespaceHasMembers(Uuid),
+
+    /// Namespace is not active
+    #[error("Namespace is not active: {0}")]
+    NamespaceNotActive(Uuid),
+
     /// Insufficient machines for unfreeze
     #[error("Insufficient machines for unfreeze: available={available}, message={message}")]
     InsufficientMachinesForUnfreeze { available: usize, message: String },

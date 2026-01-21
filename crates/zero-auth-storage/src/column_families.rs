@@ -20,6 +20,9 @@ pub const CF_NAMESPACES: &str = "namespaces";
 /// Identity namespace memberships: (identity_id, namespace_id) → Membership
 pub const CF_IDENTITY_NAMESPACE_MEMBERSHIPS: &str = "identity_namespace_memberships";
 
+/// Namespaces by identity index: (identity_id, namespace_id) → ()
+pub const CF_NAMESPACES_BY_IDENTITY: &str = "namespaces_by_identity";
+
 /// Authentication credentials: (identity_id, cred_type) → Credential
 pub const CF_AUTH_CREDENTIALS: &str = "auth_credentials";
 
@@ -95,6 +98,7 @@ pub fn all_column_families() -> Vec<&'static str> {
         CF_MACHINE_KEYS_BY_NAMESPACE,
         CF_NAMESPACES,
         CF_IDENTITY_NAMESPACE_MEMBERSHIPS,
+        CF_NAMESPACES_BY_IDENTITY,
         CF_AUTH_CREDENTIALS,
         CF_MFA_SECRETS,
         CF_CHALLENGES,

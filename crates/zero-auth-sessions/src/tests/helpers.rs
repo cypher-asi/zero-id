@@ -74,7 +74,7 @@ pub async fn create_test_identity_with_machine(
 
     // Create Ed25519 keypair for identity
     let identity_keypair = Ed25519KeyPair::from_seed(&[42u8; 32]).unwrap();
-    let central_public_key = identity_keypair.public_key_bytes();
+    let identity_signing_public_key = identity_keypair.public_key_bytes();
 
     let signing_public_key = [2u8; 32];
     let encryption_public_key = [3u8; 32];
@@ -100,7 +100,7 @@ pub async fn create_test_identity_with_machine(
     // Create canonical message
     let message = canonicalize_identity_creation_message(
         &identity_id,
-        &central_public_key,
+        &identity_signing_public_key,
         &machine_id,
         &signing_public_key,
         &encryption_public_key,
@@ -113,7 +113,7 @@ pub async fn create_test_identity_with_machine(
     // Create identity request
     let request = CreateIdentityRequest {
         identity_id,
-        central_public_key,
+        identity_signing_public_key,
         machine_key,
         authorization_signature: signature.to_vec(),
         namespace_name: Some("test-namespace".to_string()),

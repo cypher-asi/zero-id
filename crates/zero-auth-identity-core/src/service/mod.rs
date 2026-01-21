@@ -50,8 +50,14 @@ where
         let mut active_machines = Vec::new();
 
         for (key_bytes, _) in machines_index {
-            if key_bytes.len() >= 32 {
-                let machine_id_bytes = &key_bytes[16..32];
+            // Key format with bincode serialization:
+            // - 8 bytes: length prefix for first Uuid (always 16)
+            // - 16 bytes: identity_id
+            // - 8 bytes: length prefix for second Uuid (always 16)
+            // - 16 bytes: machine_id
+            // Total: 48 bytes
+            if key_bytes.len() >= 48 {
+                let machine_id_bytes = &key_bytes[32..48];
                 let machine_id = Uuid::from_slice(machine_id_bytes).map_err(|e| {
                     IdentityCoreError::Storage(zero_auth_storage::StorageError::Deserialization(
                         e.to_string(),
@@ -240,6 +246,84 @@ where
         self.get_namespace_membership_internal(identity_id, namespace_id)
             .await
     }
+
+    // ========================================================================
+    // Namespace Management
+    // ========================================================================
+
+    async fn list_namespaces(&self, identity_id: Uuid) -> Result<Vec<Namespace>> {
+        self.list_namespaces_internal(identity_id).await
+    }
+
+    async fn update_namespace(
+        &self,
+        namespace_id: Uuid,
+        name: String,
+        requester_id: Uuid,
+    ) -> Result<Namespace> {
+        self.update_namespace_internal(namespace_id, name, requester_id)
+            .await
+    }
+
+    async fn deactivate_namespace(&self, namespace_id: Uuid, requester_id: Uuid) -> Result<()> {
+        self.deactivate_namespace_internal(namespace_id, requester_id)
+            .await
+    }
+
+    async fn reactivate_namespace(&self, namespace_id: Uuid, requester_id: Uuid) -> Result<()> {
+        self.reactivate_namespace_internal(namespace_id, requester_id)
+            .await
+    }
+
+    async fn delete_namespace(&self, namespace_id: Uuid, requester_id: Uuid) -> Result<()> {
+        self.delete_namespace_internal(namespace_id, requester_id)
+            .await
+    }
+
+    // ========================================================================
+    // Namespace Membership Management
+    // ========================================================================
+
+    async fn list_namespace_members(
+        &self,
+        namespace_id: Uuid,
+        requester_id: Uuid,
+    ) -> Result<Vec<IdentityNamespaceMembership>> {
+        self.list_namespace_members_internal(namespace_id, requester_id)
+            .await
+    }
+
+    async fn add_namespace_member(
+        &self,
+        namespace_id: Uuid,
+        identity_id: Uuid,
+        role: NamespaceRole,
+        requester_id: Uuid,
+    ) -> Result<IdentityNamespaceMembership> {
+        self.add_namespace_member_internal(namespace_id, identity_id, role, requester_id)
+            .await
+    }
+
+    async fn update_namespace_member(
+        &self,
+        namespace_id: Uuid,
+        identity_id: Uuid,
+        role: NamespaceRole,
+        requester_id: Uuid,
+    ) -> Result<IdentityNamespaceMembership> {
+        self.update_namespace_member_internal(namespace_id, identity_id, role, requester_id)
+            .await
+    }
+
+    async fn remove_namespace_member(
+        &self,
+        namespace_id: Uuid,
+        identity_id: Uuid,
+        requester_id: Uuid,
+    ) -> Result<()> {
+        self.remove_namespace_member_internal(namespace_id, identity_id, requester_id)
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -247,7 +331,7 @@ mod tests {
     use super::*;
     use crate::traits::mocks::MockEventPublisher;
     use zero_auth_crypto::{
-        canonicalize_identity_creation_message, derive_central_public_key, sign_message,
+        canonicalize_identity_creation_message, derive_identity_signing_keypair, sign_message,
         MachineKeyCapabilities, NeuralKey,
     };
     use zero_auth_policy::PolicyEngineImpl;
@@ -262,8 +346,8 @@ mod tests {
 
         let neural_key = NeuralKey::generate().unwrap();
         let identity_id = Uuid::new_v4();
-        let (central_public_key, identity_keypair) =
-            derive_central_public_key(&neural_key, &identity_id).unwrap();
+        let (identity_signing_public_key, identity_keypair) =
+            derive_identity_signing_keypair(&neural_key, &identity_id).unwrap();
 
         let machine_id = Uuid::new_v4();
         let machine_key = MachineKey {
@@ -285,7 +369,7 @@ mod tests {
 
         let message = canonicalize_identity_creation_message(
             &identity_id,
-            &central_public_key,
+            &identity_signing_public_key,
             &machine_id,
             &machine_key.signing_public_key,
             &machine_key.encryption_public_key,
@@ -296,7 +380,7 @@ mod tests {
 
         let request = CreateIdentityRequest {
             identity_id,
-            central_public_key,
+            identity_signing_public_key,
             machine_key,
             authorization_signature: signature.to_vec(),
             namespace_name: Some("test-namespace".to_string()),

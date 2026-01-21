@@ -97,6 +97,79 @@ pub trait IdentityCore: Send + Sync {
         identity_id: Uuid,
         namespace_id: Uuid,
     ) -> Result<Option<IdentityNamespaceMembership>>;
+
+    // ========================================================================
+    // Namespace Management
+    // ========================================================================
+
+    /// List all namespaces for an identity
+    async fn list_namespaces(&self, identity_id: Uuid) -> Result<Vec<Namespace>>;
+
+    /// Update a namespace (name)
+    async fn update_namespace(
+        &self,
+        namespace_id: Uuid,
+        name: String,
+        requester_id: Uuid,
+    ) -> Result<Namespace>;
+
+    /// Deactivate a namespace
+    async fn deactivate_namespace(
+        &self,
+        namespace_id: Uuid,
+        requester_id: Uuid,
+    ) -> Result<()>;
+
+    /// Reactivate a namespace
+    async fn reactivate_namespace(
+        &self,
+        namespace_id: Uuid,
+        requester_id: Uuid,
+    ) -> Result<()>;
+
+    /// Delete a namespace (must have no other members)
+    async fn delete_namespace(
+        &self,
+        namespace_id: Uuid,
+        requester_id: Uuid,
+    ) -> Result<()>;
+
+    // ========================================================================
+    // Namespace Membership Management
+    // ========================================================================
+
+    /// List all members of a namespace
+    async fn list_namespace_members(
+        &self,
+        namespace_id: Uuid,
+        requester_id: Uuid,
+    ) -> Result<Vec<IdentityNamespaceMembership>>;
+
+    /// Add a member to a namespace
+    async fn add_namespace_member(
+        &self,
+        namespace_id: Uuid,
+        identity_id: Uuid,
+        role: NamespaceRole,
+        requester_id: Uuid,
+    ) -> Result<IdentityNamespaceMembership>;
+
+    /// Update a member's role in a namespace
+    async fn update_namespace_member(
+        &self,
+        namespace_id: Uuid,
+        identity_id: Uuid,
+        role: NamespaceRole,
+        requester_id: Uuid,
+    ) -> Result<IdentityNamespaceMembership>;
+
+    /// Remove a member from a namespace
+    async fn remove_namespace_member(
+        &self,
+        namespace_id: Uuid,
+        identity_id: Uuid,
+        requester_id: Uuid,
+    ) -> Result<()>;
 }
 
 #[cfg(test)]

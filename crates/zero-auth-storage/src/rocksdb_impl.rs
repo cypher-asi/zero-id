@@ -128,18 +128,42 @@ impl Storage for RocksDbStorage {
         let prefix_bytes = serialize_key(prefix)?;
 
         let mut results = Vec::new();
-        let iter = self.db.prefix_iterator_cf(cf_handle, &prefix_bytes);
+
+        // Use iterator with From mode to seek to the prefix position
+        // This works without needing a prefix extractor configured
+        let iter = self
+            .db
+            .iterator_cf(cf_handle, rocksdb::IteratorMode::From(&prefix_bytes, rocksdb::Direction::Forward));
 
         for item in iter {
             let (key, value) = item.map_err(|e| StorageError::Database(e.to_string()))?;
 
-            // Check if key still has prefix (iterator may overshoot)
+            // Check if key still has prefix
             if key.starts_with(&prefix_bytes) {
                 let deserialized_value = deserialize_value(&value)?;
                 results.push((key.to_vec(), deserialized_value));
             } else {
+                // Keys are sorted, so once we're past the prefix, we're done
                 break;
             }
+        }
+
+        Ok(results)
+    }
+
+    async fn scan_all<V>(&self, cf: &str) -> Result<Vec<(Vec<u8>, V)>>
+    where
+        V: DeserializeOwned,
+    {
+        let cf_handle = self.cf_handle(cf)?;
+
+        let mut results = Vec::new();
+        let iter = self.db.iterator_cf(cf_handle, rocksdb::IteratorMode::Start);
+
+        for item in iter {
+            let (key, value) = item.map_err(|e| StorageError::Database(e.to_string()))?;
+            let deserialized_value = deserialize_value(&value)?;
+            results.push((key.to_vec(), deserialized_value));
         }
 
         Ok(results)

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use axum::{
     http::{HeaderValue, Method},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 use std::net::SocketAddr;
@@ -116,6 +116,46 @@ fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/v1/machines/:machine_id",
             delete(api::machines::revoke_machine),
+        )
+        // Namespace management
+        .route("/v1/namespaces", post(api::namespaces::create_namespace))
+        .route("/v1/namespaces", get(api::namespaces::list_namespaces))
+        .route(
+            "/v1/namespaces/:namespace_id",
+            get(api::namespaces::get_namespace),
+        )
+        .route(
+            "/v1/namespaces/:namespace_id",
+            patch(api::namespaces::update_namespace),
+        )
+        .route(
+            "/v1/namespaces/:namespace_id/deactivate",
+            post(api::namespaces::deactivate_namespace),
+        )
+        .route(
+            "/v1/namespaces/:namespace_id/reactivate",
+            post(api::namespaces::reactivate_namespace),
+        )
+        .route(
+            "/v1/namespaces/:namespace_id",
+            delete(api::namespaces::delete_namespace),
+        )
+        // Namespace members
+        .route(
+            "/v1/namespaces/:namespace_id/members",
+            get(api::namespaces::list_members),
+        )
+        .route(
+            "/v1/namespaces/:namespace_id/members",
+            post(api::namespaces::add_member),
+        )
+        .route(
+            "/v1/namespaces/:namespace_id/members/:identity_id",
+            patch(api::namespaces::update_member),
+        )
+        .route(
+            "/v1/namespaces/:namespace_id/members/:identity_id",
+            delete(api::namespaces::remove_member),
         )
         // Authentication
         .route("/v1/auth/challenge", get(api::auth::get_challenge))

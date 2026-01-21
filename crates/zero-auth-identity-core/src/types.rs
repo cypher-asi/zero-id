@@ -146,6 +146,37 @@ pub struct RevocationEvent {
     pub reason: String,
 }
 
+// ============================================================================
+// Namespace Management Request/Response Types
+// ============================================================================
+
+/// Request to create a namespace
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateNamespaceRequest {
+    pub namespace_id: Uuid,
+    pub name: String,
+    pub owner_identity_id: Uuid,
+}
+
+/// Request to update a namespace
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateNamespaceRequest {
+    pub name: Option<String>,
+}
+
+/// Request to add a member to a namespace
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddMemberRequest {
+    pub identity_id: Uuid,
+    pub role: NamespaceRole,
+}
+
+/// Request to update a member's role
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateMemberRequest {
+    pub role: NamespaceRole,
+}
+
 // Re-export current_timestamp from zero-auth-crypto
 pub use zero_auth_crypto::current_timestamp;
 

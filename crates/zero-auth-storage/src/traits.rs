@@ -44,6 +44,14 @@ pub trait Storage: Send + Sync {
         K: Serialize + Send + Sync,
         V: DeserializeOwned;
 
+    /// Scan all entries in a column family
+    ///
+    /// Returns all key-value pairs in the column family.
+    /// Use with caution on large column families.
+    async fn scan_all<V>(&self, cf: &str) -> Result<Vec<(Vec<u8>, V)>>
+    where
+        V: DeserializeOwned;
+
     /// Create a new batch for atomic operations
     fn batch(&self) -> Box<dyn Batch>;
 
