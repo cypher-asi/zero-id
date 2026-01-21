@@ -82,6 +82,7 @@ where
         &self,
         request: &CreateIdentityRequest,
     ) -> Result<()> {
+        // For identity creation, entity states are not yet available
         let policy_context = zero_auth_policy::PolicyContext {
             identity_id: request.identity_id,
             machine_id: Some(request.machine_key.machine_id),
@@ -95,6 +96,11 @@ where
             timestamp: request.created_at,
             reputation_score: 50,
             recent_failed_attempts: 0,
+            // Entity states not available for new identity
+            identity_status: None,
+            machine_revoked: None,
+            machine_capabilities: None,
+            namespace_active: None,
         };
 
         let decision =
@@ -110,6 +116,67 @@ where
         }
 
         Ok(())
+    }
+
+    /// Build an enriched PolicyContext with entity states loaded from storage
+    ///
+    /// This helper fetches the identity, machine, and namespace from storage
+    /// and populates the PolicyContext with their current states.
+    pub async fn build_policy_context(
+        &self,
+        identity_id: Uuid,
+        machine_id: Option<Uuid>,
+        namespace_id: Uuid,
+        operation: zero_auth_policy::Operation,
+        auth_method: zero_auth_policy::AuthMethod,
+        mfa_verified: bool,
+        ip_address: String,
+        user_agent: String,
+    ) -> Result<zero_auth_policy::PolicyContext> {
+        // Fetch entity states from storage
+        let identity: Option<Identity> = self.storage.get(CF_IDENTITIES, &identity_id).await?;
+
+        let machine: Option<MachineKey> = if let Some(mid) = machine_id {
+            self.storage.get(CF_MACHINE_KEYS, &mid).await?
+        } else {
+            None
+        };
+
+        let namespace: Option<Namespace> = self.storage.get(CF_NAMESPACES, &namespace_id).await?;
+
+        // Get reputation score from policy engine
+        let reputation_score = self
+            .policy
+            .get_reputation(identity_id)
+            .await
+            .unwrap_or(50);
+
+        // Convert identity status to policy IdentityStatus
+        let identity_status = identity.as_ref().map(|i| match i.status {
+            IdentityStatus::Active => zero_auth_policy::IdentityStatus::Active,
+            IdentityStatus::Disabled => zero_auth_policy::IdentityStatus::Disabled,
+            IdentityStatus::Frozen => zero_auth_policy::IdentityStatus::Frozen,
+            IdentityStatus::Deleted => zero_auth_policy::IdentityStatus::Deleted,
+        });
+
+        Ok(zero_auth_policy::PolicyContext {
+            identity_id,
+            machine_id,
+            namespace_id,
+            auth_method,
+            mfa_verified,
+            operation,
+            resource: Some(zero_auth_policy::Resource::Identity(identity_id)),
+            ip_address,
+            user_agent,
+            timestamp: current_timestamp(),
+            reputation_score,
+            recent_failed_attempts: 0, // Could be tracked separately
+            identity_status,
+            machine_revoked: machine.as_ref().map(|m| m.revoked),
+            machine_capabilities: machine.as_ref().map(|m| m.capabilities.bits()),
+            namespace_active: namespace.as_ref().map(|n| n.active),
+        })
     }
 
     fn verify_identity_authorization(request: &CreateIdentityRequest) -> Result<()> {

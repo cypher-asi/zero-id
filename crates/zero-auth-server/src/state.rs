@@ -24,6 +24,12 @@ impl zero_auth_identity_core::EventPublisher for IdentityNoOpPublisher {
     }
 }
 
+/// Type alias for the policy engine with RocksDB storage
+pub type PolicyEngine = PolicyEngineImpl<RocksDbStorage>;
+
+/// Type alias for identity service with standard dependencies
+pub type IdentityService = IdentityCoreService<PolicyEngine, IdentityNoOpPublisher, RocksDbStorage>;
+
 /// Application state shared across all handlers
 #[derive(Clone)]
 pub struct AppState {
@@ -31,25 +37,13 @@ pub struct AppState {
     pub config: Config,
     /// Direct storage handle for health checks and admin queries.
     pub storage: Arc<RocksDbStorage>,
-    pub identity_service:
-        Arc<IdentityCoreService<PolicyEngineImpl, IdentityNoOpPublisher, RocksDbStorage>>,
-    pub auth_service: Arc<
-        AuthMethodsService<
-            IdentityCoreService<PolicyEngineImpl, IdentityNoOpPublisher, RocksDbStorage>,
-            PolicyEngineImpl,
-            RocksDbStorage,
-        >,
-    >,
-    pub session_service: Arc<
-        SessionService<
-            RocksDbStorage,
-            IdentityCoreService<PolicyEngineImpl, IdentityNoOpPublisher, RocksDbStorage>,
-            NoOpEventPublisher,
-        >,
-    >,
+    pub identity_service: Arc<IdentityService>,
+    pub auth_service: Arc<AuthMethodsService<IdentityService, PolicyEngine, RocksDbStorage>>,
+    pub session_service:
+        Arc<SessionService<RocksDbStorage, IdentityService, NoOpEventPublisher>>,
     pub integrations_service: Arc<IntegrationsService<RocksDbStorage>>,
     /// Policy engine handle for policy-aware endpoints.
-    pub policy_engine: Arc<PolicyEngineImpl>,
+    pub policy_engine: Arc<PolicyEngine>,
 }
 
 impl AppState {
@@ -57,8 +51,8 @@ impl AppState {
         // Initialize storage
         let storage = Arc::new(RocksDbStorage::open(&config.database_path)?);
 
-        // Initialize policy engine
-        let policy_engine = Arc::new(PolicyEngineImpl::new());
+        // Initialize policy engine with storage for persistent reputation
+        let policy_engine = Arc::new(PolicyEngineImpl::new(Arc::clone(&storage)));
 
         // Initialize services
         let identity_service = Arc::new(IdentityCoreService::new(

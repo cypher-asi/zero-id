@@ -23,8 +23,13 @@ uuid = { workspace = true }
 # Tracing
 tracing = { workspace = true }
 
+# Storage (for persistent reputation)
+zero-auth-storage = { path = "../zero-auth-storage" }
+
 [dev-dependencies]
 tempfile = { workspace = true }
+bincode = { workspace = true }
+hex = { workspace = true }
 
 [lib]
 name = "zero_auth_policy"

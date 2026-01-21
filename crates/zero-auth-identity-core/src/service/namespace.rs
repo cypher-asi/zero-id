@@ -619,19 +619,19 @@ mod tests {
 
     // Helper to create a test service
     fn create_test_service() -> IdentityCoreService<
-        PolicyEngineImpl,
+        PolicyEngineImpl<RocksDbStorage>,
         MockEventPublisher,
         RocksDbStorage,
     > {
         let storage = Arc::new(RocksDbStorage::open_test().unwrap());
-        let policy = Arc::new(PolicyEngineImpl::new());
+        let policy = Arc::new(PolicyEngineImpl::new(Arc::clone(&storage)));
         let events = Arc::new(MockEventPublisher);
         IdentityCoreService::new(policy, events, storage)
     }
 
     // Helper to create a test identity
     async fn create_test_identity(
-        service: &IdentityCoreService<PolicyEngineImpl, MockEventPublisher, RocksDbStorage>,
+        service: &IdentityCoreService<PolicyEngineImpl<RocksDbStorage>, MockEventPublisher, RocksDbStorage>,
     ) -> Uuid {
         let neural_key = NeuralKey::generate().unwrap();
         let identity_id = Uuid::new_v4();

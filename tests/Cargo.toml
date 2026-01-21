@@ -7,12 +7,16 @@ publish = false
 [dev-dependencies]
 # Internal crates
 zero-auth-crypto = { path = "../crates/zero-auth-crypto" }
+zero-auth-identity-core = { path = "../crates/zero-auth-identity-core" }
+zero-auth-policy = { path = "../crates/zero-auth-policy" }
+zero-auth-storage = { path = "../crates/zero-auth-storage" }
 
 # HTTP client
 reqwest = { version = "0.12", features = ["json"] }
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
 
 # Serialization
 serde_json = "1.0"
@@ -25,4 +29,9 @@ chrono = "0.4"
 [[test]]
 name = "identity_creation"
 path = "integration/identity_creation.rs"
+harness = true
+
+[[test]]
+name = "policy_engine"
+path = "integration/policy_engine.rs"
 harness = true

@@ -339,8 +339,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_identity() {
-        let storage = Arc::new(RocksDbStorage::open_test().unwrap());
-        let policy = Arc::new(PolicyEngineImpl::new());
+        let storage: Arc<RocksDbStorage> = Arc::new(RocksDbStorage::open_test().unwrap());
+        let policy = Arc::new(PolicyEngineImpl::new(Arc::clone(&storage)));
         let events = Arc::new(MockEventPublisher);
         let service = IdentityCoreService::new(policy, events, storage);
 

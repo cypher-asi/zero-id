@@ -23,7 +23,7 @@ impl zero_auth_identity_core::EventPublisher for MockIdentityCoreEventPublisher 
 }
 
 pub type TestIdentityService =
-    IdentityCoreService<PolicyEngineImpl, MockIdentityCoreEventPublisher, RocksDbStorage>;
+    IdentityCoreService<PolicyEngineImpl<RocksDbStorage>, MockIdentityCoreEventPublisher, RocksDbStorage>;
 
 /// Helper to create test storage
 pub fn create_test_storage() -> (Arc<RocksDbStorage>, TempDir) {
@@ -34,7 +34,7 @@ pub fn create_test_storage() -> (Arc<RocksDbStorage>, TempDir) {
 
 /// Helper to create test identity service
 pub fn create_test_identity_service(storage: Arc<RocksDbStorage>) -> Arc<TestIdentityService> {
-    let policy = Arc::new(PolicyEngineImpl::new());
+    let policy = Arc::new(PolicyEngineImpl::new(Arc::clone(&storage)));
     let event_publisher = Arc::new(MockIdentityCoreEventPublisher);
     Arc::new(IdentityCoreService::new(policy, event_publisher, storage))
 }
@@ -79,14 +79,14 @@ pub async fn create_test_identity_with_machine(
     let signing_public_key = [2u8; 32];
     let encryption_public_key = [3u8; 32];
 
-    // Create machine key
+    // Create machine key with full device capabilities for testing all operations
     let machine_key = MachineKey {
         machine_id,
         identity_id,
         namespace_id,
         signing_public_key,
         encryption_public_key,
-        capabilities: zero_auth_crypto::MachineKeyCapabilities::AUTHENTICATE,
+        capabilities: zero_auth_crypto::MachineKeyCapabilities::FULL_DEVICE,
         epoch: 1,
         created_at: now,
         expires_at: None,

@@ -89,6 +89,9 @@ pub const CF_PROCESSED_EVENT_IDS: &str = "processed_event_ids";
 /// Webhook delivery log: (service_id, event_id) → DeliveryStatus
 pub const CF_WEBHOOK_DELIVERY_LOG: &str = "webhook_delivery_log";
 
+/// Reputation records: identity_id → ReputationRecord
+pub const CF_REPUTATION: &str = "reputation";
+
 /// Get all column family names
 pub fn all_column_families() -> Vec<&'static str> {
     vec![
@@ -121,6 +124,7 @@ pub fn all_column_families() -> Vec<&'static str> {
         CF_REVOCATION_EVENTS,
         CF_PROCESSED_EVENT_IDS,
         CF_WEBHOOK_DELIVERY_LOG,
+        CF_REPUTATION,
     ]
 }
 

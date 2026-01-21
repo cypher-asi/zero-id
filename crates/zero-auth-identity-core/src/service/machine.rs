@@ -5,7 +5,10 @@ use tracing::info;
 use uuid::Uuid;
 use zero_auth_crypto::{canonicalize_enrollment_message, verify_signature};
 use zero_auth_policy::PolicyEngine;
-use zero_auth_storage::{traits::BatchExt, Storage, CF_MACHINE_KEYS, CF_MACHINE_KEYS_BY_IDENTITY};
+use zero_auth_storage::{
+    traits::BatchExt, Storage, CF_IDENTITIES, CF_MACHINE_KEYS, CF_MACHINE_KEYS_BY_IDENTITY,
+    CF_NAMESPACES,
+};
 
 use super::IdentityCoreService;
 
@@ -27,6 +30,10 @@ where
     ) -> Result<Uuid> {
         let reputation_score = self.policy.get_reputation(identity_id).await.unwrap_or(50);
 
+        // Fetch identity for status check
+        let identity: Option<Identity> = self.storage.get(CF_IDENTITIES, &identity_id).await?;
+        let namespace: Option<Namespace> = self.storage.get(CF_NAMESPACES, &machine_key.namespace_id).await?;
+
         let policy_context = zero_auth_policy::PolicyContext {
             identity_id,
             machine_id: Some(machine_key.machine_id),
@@ -40,6 +47,15 @@ where
             timestamp: machine_key.created_at,
             reputation_score,
             recent_failed_attempts: 0,
+            identity_status: identity.as_ref().map(|i| match i.status {
+                IdentityStatus::Active => zero_auth_policy::IdentityStatus::Active,
+                IdentityStatus::Disabled => zero_auth_policy::IdentityStatus::Disabled,
+                IdentityStatus::Frozen => zero_auth_policy::IdentityStatus::Frozen,
+                IdentityStatus::Deleted => zero_auth_policy::IdentityStatus::Deleted,
+            }),
+            machine_revoked: None, // New machine being enrolled
+            machine_capabilities: Some(machine_key.capabilities.bits()),
+            namespace_active: namespace.as_ref().map(|n| n.active),
         };
 
         let decision =

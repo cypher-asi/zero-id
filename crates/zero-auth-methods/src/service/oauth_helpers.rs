@@ -38,6 +38,11 @@ where
             timestamp: current_timestamp(),
             reputation_score,
             recent_failed_attempts: 0,
+            // Entity states checked separately in auth flow
+            identity_status: None,
+            machine_revoked: None,
+            machine_capabilities: None,
+            namespace_active: None,
         };
 
         self.policy.evaluate(context).await.map_err(AuthMethodsError::Policy)

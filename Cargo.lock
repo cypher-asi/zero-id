@@ -3475,6 +3475,7 @@ dependencies = [
 name = "zero-auth-integration-tests"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "hex",
  "reqwest 0.12.28",
@@ -3482,6 +3483,9 @@ dependencies = [
  "tokio",
  "uuid",
  "zero-auth-crypto",
+ "zero-auth-identity-core",
+ "zero-auth-policy",
+ "zero-auth-storage",
 ]
 
 [[package]]
@@ -3537,12 +3541,15 @@ name = "zero-auth-policy"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bincode",
+ "hex",
  "serde",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
  "uuid",
+ "zero-auth-storage",
 ]
 
 [[package]]

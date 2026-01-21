@@ -3,6 +3,19 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Identity status for policy evaluation
+///
+/// Note: This mirrors the IdentityStatus in identity-core to avoid
+/// circular dependencies. The caller must convert when building PolicyContext.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IdentityStatus {
+    Active = 0x01,
+    Disabled = 0x02,
+    Frozen = 0x03,
+    Deleted = 0x04,
+}
+
 /// Policy evaluation context
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyContext {
@@ -25,6 +38,56 @@ pub struct PolicyContext {
     // Reputation
     pub reputation_score: i32, // -100 to +100
     pub recent_failed_attempts: u32,
+
+    // Entity States (populated by caller via context enrichment)
+    /// Identity status - if None, check is skipped
+    pub identity_status: Option<IdentityStatus>,
+    /// Whether the machine key has been revoked
+    pub machine_revoked: Option<bool>,
+    /// Machine key capabilities as bitflags
+    pub machine_capabilities: Option<u32>,
+    /// Whether the namespace is active
+    pub namespace_active: Option<bool>,
+}
+
+/// Reputation record for persistent storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReputationRecord {
+    pub identity_id: Uuid,
+    pub score: i32,
+    pub successful_attempts: u32,
+    pub failed_attempts: u32,
+    pub last_updated: u64,
+}
+
+/// Rate limit configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitConfig {
+    /// IP rate limit window in seconds
+    pub ip_window_seconds: u64,
+    /// Maximum requests per IP window
+    pub ip_max_requests: u32,
+    /// Identity rate limit window in seconds
+    pub identity_window_seconds: u64,
+    /// Maximum requests per identity window
+    pub identity_max_requests: u32,
+    /// Failure tracking window in seconds
+    pub failure_window_seconds: u64,
+    /// Maximum failed attempts before lockout
+    pub failure_max_attempts: u32,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            ip_window_seconds: 60,
+            ip_max_requests: 100,
+            identity_window_seconds: 3600,
+            identity_max_requests: 1000,
+            failure_window_seconds: 900, // 15 minutes
+            failure_max_attempts: 5,
+        }
+    }
 }
 
 /// Policy decision
@@ -128,6 +191,22 @@ pub struct RateLimit {
     pub reset_at: u64,
 }
 
+/// Machine key capability bitflags (mirrors zero-auth-crypto::MachineKeyCapabilities)
+pub mod capabilities {
+    /// Can authenticate (sign challenges)
+    pub const AUTHENTICATE: u32 = 0x01;
+    /// Can sign messages
+    pub const SIGN: u32 = 0x02;
+    /// Can decrypt messages
+    pub const DECRYPT: u32 = 0x04;
+    /// Can enroll new machines
+    pub const ENROLL: u32 = 0x08;
+    /// Can revoke other machines
+    pub const REVOKE: u32 = 0x10;
+    /// Can approve sensitive operations
+    pub const APPROVE: u32 = 0x20;
+}
+
 impl Operation {
     /// Check if operation is high-risk
     pub fn is_high_risk(&self) -> bool {
@@ -161,6 +240,48 @@ impl Operation {
             _ => 0,
         }
     }
+
+    /// Get required machine capabilities for this operation
+    ///
+    /// Returns a bitflag of required capabilities. If the machine doesn't
+    /// have all required capabilities, the operation should be denied.
+    pub fn required_capabilities(&self) -> u32 {
+        use capabilities::*;
+        match self {
+            // Authentication operations
+            Operation::Login | Operation::RefreshToken => AUTHENTICATE,
+
+            // Identity management
+            Operation::CreateIdentity => AUTHENTICATE | SIGN,
+            Operation::DisableIdentity => AUTHENTICATE | SIGN,
+            Operation::FreezeIdentity => AUTHENTICATE | SIGN,
+            Operation::UnfreezeIdentity => AUTHENTICATE | SIGN | APPROVE,
+
+            // Machine key operations
+            Operation::EnrollMachine => AUTHENTICATE | SIGN | ENROLL,
+            Operation::RevokeMachine => AUTHENTICATE | SIGN | REVOKE,
+
+            // Neural key operations (highly sensitive)
+            Operation::RotateNeuralKey => AUTHENTICATE | SIGN | APPROVE,
+            Operation::RecoverNeuralKey => AUTHENTICATE | SIGN | APPROVE,
+            Operation::InitiateRecovery => AUTHENTICATE,
+
+            // Credential operations
+            Operation::ChangePassword => AUTHENTICATE | SIGN,
+            Operation::ResetPassword => AUTHENTICATE,
+            Operation::AttachEmail => AUTHENTICATE | SIGN,
+            Operation::AttachWallet => AUTHENTICATE | SIGN,
+
+            // MFA operations
+            Operation::EnableMfa => AUTHENTICATE | SIGN,
+            Operation::DisableMfa => AUTHENTICATE | SIGN,
+            Operation::VerifyMfa => AUTHENTICATE,
+
+            // Session operations
+            Operation::RevokeSession => AUTHENTICATE | SIGN,
+            Operation::RevokeAllSessions => AUTHENTICATE | SIGN | REVOKE,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -188,5 +309,48 @@ mod tests {
         assert_eq!(Operation::RotateNeuralKey.required_approvals(), 2);
         assert_eq!(Operation::UnfreezeIdentity.required_approvals(), 2);
         assert_eq!(Operation::Login.required_approvals(), 0);
+    }
+
+    #[test]
+    fn test_operation_required_capabilities() {
+        use capabilities::*;
+
+        // Login only requires AUTHENTICATE
+        assert_eq!(Operation::Login.required_capabilities(), AUTHENTICATE);
+
+        // EnrollMachine requires AUTHENTICATE | SIGN | ENROLL
+        let enroll_caps = Operation::EnrollMachine.required_capabilities();
+        assert!(enroll_caps & AUTHENTICATE != 0);
+        assert!(enroll_caps & SIGN != 0);
+        assert!(enroll_caps & ENROLL != 0);
+
+        // RevokeMachine requires AUTHENTICATE | SIGN | REVOKE
+        let revoke_caps = Operation::RevokeMachine.required_capabilities();
+        assert!(revoke_caps & AUTHENTICATE != 0);
+        assert!(revoke_caps & SIGN != 0);
+        assert!(revoke_caps & REVOKE != 0);
+
+        // RotateNeuralKey requires APPROVE
+        let rotate_caps = Operation::RotateNeuralKey.required_capabilities();
+        assert!(rotate_caps & APPROVE != 0);
+    }
+
+    #[test]
+    fn test_identity_status_values() {
+        assert_eq!(IdentityStatus::Active as u8, 0x01);
+        assert_eq!(IdentityStatus::Disabled as u8, 0x02);
+        assert_eq!(IdentityStatus::Frozen as u8, 0x03);
+        assert_eq!(IdentityStatus::Deleted as u8, 0x04);
+    }
+
+    #[test]
+    fn test_rate_limit_config_default() {
+        let config = RateLimitConfig::default();
+        assert_eq!(config.ip_window_seconds, 60);
+        assert_eq!(config.ip_max_requests, 100);
+        assert_eq!(config.identity_window_seconds, 3600);
+        assert_eq!(config.identity_max_requests, 1000);
+        assert_eq!(config.failure_window_seconds, 900);
+        assert_eq!(config.failure_max_attempts, 5);
     }
 }
