@@ -8,11 +8,11 @@ zero-auth is a modular authentication system built on the principle that cryptog
 
 ### Core Principles
 
-- **Client-Controlled Cryptography**: The root secret (Neural Key) is generated and stored exclusively on client devices
-- **Hierarchical Key Derivation**: All keys are deterministically derived from the Neural Key using HKDF-SHA256
-- **Per-Device Operations**: Daily authentication uses Machine Keys, not root material
-- **Threshold Recovery**: Account recovery via 3-of-5 Shamir Secret Sharing
-- **Protocol Agnostic**: Multiple authentication methods (cryptographic, email, OAuth, wallet)
+1. **Client-Controlled Cryptography**: The root secret (Neural Key) is generated and stored exclusively on client devices
+2. **Hierarchical Key Derivation**: All keys are deterministically derived from the Neural Key using HKDF-SHA256
+3. **Per-Device Operations**: Daily authentication uses Machine Keys, not root material
+4. **Threshold Recovery**: Account recovery via 3-of-5 Neural Shards using Shamir Secret Sharing
+5. **Protocol Agnostic**: Multiple authentication methods (cryptographic, email, OAuth, wallet)
 
 ## How the System Works
 
@@ -22,6 +22,7 @@ The Neural Key is a 32-byte (256-bit) cryptographically random value that serves
 
 - Generated client-side using a cryptographically secure random number generator
 - Never transmitted over the network or stored on the server
+- The private key is never stored on a hard drive
 - All other keys are derived from it deterministically
 - Protected via Shamir Secret Sharing for disaster recovery
 - Zeroized from memory immediately after use
@@ -32,7 +33,7 @@ When creating an identity, the client:
 2. Derives an Identity Signing Key from the Neural Key
 3. Derives a Machine Key for the current device
 4. Sends only the public keys to the server
-5. Splits the Neural Key into 5 recovery shards (3 required to reconstruct)
+5. Splits the Neural Key into 5 Neural Shards for recovery
 
 ### Key Hierarchy
 
