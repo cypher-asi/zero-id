@@ -3,7 +3,9 @@
 use crate::{errors::*, types::MfaSetup};
 use rand::Rng;
 use totp_rs::{Algorithm, Secret, TOTP};
-use zero_auth_crypto::{decrypt_mfa_secret as decrypt_secret, encrypt_mfa_secret as encrypt_secret};
+use zero_auth_crypto::{
+    decrypt_mfa_secret as decrypt_secret, encrypt_mfa_secret as encrypt_secret,
+};
 
 /// TOTP parameters
 const TOTP_DIGITS: usize = 6;
@@ -23,13 +25,12 @@ pub fn generate_mfa_setup(issuer: &str, account_name: &str) -> Result<MfaSetup> 
     rng.fill(&mut secret_bytes[..]);
 
     // Encode to base32 for display
-    let secret_base32 = Secret::Raw(secret_bytes.clone())
-        .to_encoded()
-        .to_string();
+    let secret_base32 = Secret::Raw(secret_bytes.clone()).to_encoded().to_string();
 
-    // Create TOTP instance
+    // Create TOTP instance using SHA-256 for improved security
+    // Note: SHA-256 is recommended over SHA-1 for new implementations
     let _totp = TOTP::new(
-        Algorithm::SHA1,
+        Algorithm::SHA256,
         TOTP_DIGITS,
         1, // skew (for time sync tolerance)
         TOTP_STEP,
@@ -38,14 +39,10 @@ pub fn generate_mfa_setup(issuer: &str, account_name: &str) -> Result<MfaSetup> 
     .map_err(|e| AuthMethodsError::TotpError(e.to_string()))?;
 
     // Generate OTPAuth URL for QR code
+    // Note: algorithm=SHA256 - ensure authenticator app supports SHA-256
     let otpauth_url = format!(
-        "otpauth://totp/{}:{}?secret={}&issuer={}&algorithm=SHA1&digits={}&period={}",
-        issuer,
-        account_name,
-        secret_base32,
-        issuer,
-        TOTP_DIGITS,
-        TOTP_STEP
+        "otpauth://totp/{}:{}?secret={}&issuer={}&algorithm=SHA256&digits={}&period={}",
+        issuer, account_name, secret_base32, issuer, TOTP_DIGITS, TOTP_STEP
     );
 
     // For now, just return the URL (frontend can generate QR code)
@@ -66,11 +63,15 @@ pub fn verify_totp_code(secret_base32: &str, code: &str) -> Result<bool> {
     // Decode base32 secret
     let secret_bytes = match Secret::Encoded(secret_base32.to_string()).to_bytes() {
         Ok(bytes) => bytes,
-        Err(_) => return Err(AuthMethodsError::TotpError("Invalid secret encoding".to_string())),
+        Err(_) => {
+            return Err(AuthMethodsError::TotpError(
+                "Invalid secret encoding".to_string(),
+            ))
+        }
     };
 
     let totp = TOTP::new(
-        Algorithm::SHA1,
+        Algorithm::SHA256,
         TOTP_DIGITS,
         1,
         TOTP_STEP,
@@ -142,9 +143,12 @@ pub fn hash_backup_code(code: &str) -> String {
 }
 
 /// Verify backup code against stored hash
+///
+/// Uses constant-time comparison to prevent timing attacks.
 pub fn verify_backup_code(code: &str, hash: &str) -> bool {
     let computed_hash = hash_backup_code(code);
-    computed_hash == hash
+    // Use constant-time comparison to prevent timing attacks
+    zero_auth_crypto::constant_time_compare(computed_hash.as_bytes(), hash.as_bytes())
 }
 
 #[cfg(test)]
@@ -157,7 +161,10 @@ mod tests {
 
         // Secret should be base32 encoded
         assert!(!setup.secret.is_empty());
-        assert!(setup.secret.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
+        assert!(setup
+            .secret
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
 
         // QR code should be a data URL (otpauth URL for now)
         assert!(setup.qr_code_url.starts_with("data:text/plain"));
@@ -180,19 +187,10 @@ mod tests {
         rng.fill(&mut secret_bytes[..]);
 
         // Encode to base32
-        let secret_base32 = Secret::Raw(secret_bytes.clone())
-            .to_encoded()
-            .to_string();
+        let secret_base32 = Secret::Raw(secret_bytes.clone()).to_encoded().to_string();
 
         // Generate current code
-        let totp = TOTP::new(
-            Algorithm::SHA1,
-            TOTP_DIGITS,
-            1,
-            TOTP_STEP,
-            secret_bytes,
-        )
-        .unwrap();
+        let totp = TOTP::new(Algorithm::SHA256, TOTP_DIGITS, 1, TOTP_STEP, secret_bytes).unwrap();
 
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

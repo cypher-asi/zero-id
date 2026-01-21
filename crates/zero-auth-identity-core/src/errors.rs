@@ -76,6 +76,10 @@ pub enum IdentityCoreError {
     #[error("Identity frozen: {0}")]
     IdentityFrozen(Uuid),
 
+    /// Already frozen
+    #[error("Identity already frozen: {0}")]
+    AlreadyFrozen(Uuid),
+
     /// Not frozen
     #[error("Identity not frozen: {0}")]
     NotFrozen(Uuid),

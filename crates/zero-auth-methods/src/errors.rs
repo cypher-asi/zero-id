@@ -1,7 +1,21 @@
 //! Auth Methods error types.
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
+
+/// Information about an available machine for login
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AvailableMachine {
+    /// Machine ID
+    pub machine_id: Uuid,
+    /// Device name
+    pub device_name: String,
+    /// Device platform
+    pub device_platform: String,
+    /// Last used timestamp
+    pub last_used_at: Option<u64>,
+}
 
 /// Auth Methods errors
 #[derive(Debug, Error)]
@@ -76,7 +90,9 @@ pub enum AuthMethodsError {
     #[error("Machine ID required: {hint}")]
     MachineIdRequired {
         /// Hint for resolving the issue
-        hint: String
+        hint: String,
+        /// List of available machines
+        available_machines: Vec<AvailableMachine>,
     },
 
     /// Policy denied
@@ -158,7 +174,7 @@ pub enum AuthMethodsError {
         /// Expected nonce value
         expected: String,
         /// Actual nonce value received
-        got: String
+        got: String,
     },
 
     /// Missing nonce in ID token
@@ -175,7 +191,7 @@ pub enum AuthMethodsError {
         /// Expected issuer
         expected: String,
         /// Actual issuer received
-        got: String
+        got: String,
     },
 
     /// Audience mismatch
@@ -184,7 +200,7 @@ pub enum AuthMethodsError {
         /// Expected audience
         expected: String,
         /// Actual audience received
-        got: String
+        got: String,
     },
 
     /// Token expired
@@ -193,7 +209,7 @@ pub enum AuthMethodsError {
         /// Unix timestamp when token expired
         expired_at: u64,
         /// Current unix timestamp
-        current_time: u64
+        current_time: u64,
     },
 
     /// Token issued in future
@@ -202,14 +218,14 @@ pub enum AuthMethodsError {
         /// Unix timestamp when token was issued
         issued_at: u64,
         /// Current unix timestamp
-        current_time: u64
+        current_time: u64,
     },
 
     /// JWKS key not found
     #[error("JWKS key not found: kid={kid}")]
     KeyNotFound {
         /// Key ID that was not found
-        kid: String
+        kid: String,
     },
 
     /// Invalid algorithm
@@ -218,7 +234,7 @@ pub enum AuthMethodsError {
         /// Expected algorithm
         expected: String,
         /// Actual algorithm received
-        got: String
+        got: String,
     },
 
     /// OIDC discovery failed
@@ -239,7 +255,7 @@ pub enum AuthMethodsError {
         /// Email stored in database
         stored: String,
         /// Email from OAuth token
-        token: String
+        token: String,
     },
 
     /// Wallet signature invalid

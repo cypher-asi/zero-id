@@ -6,10 +6,19 @@ use base64::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
-use zero_auth_auth_methods::{AuthMethods, ChallengeRequest, ChallengeResponse as AuthChallengeResponse, EmailAuthRequest, OAuthCompleteRequest as AuthOAuthCompleteRequest};
+use zero_auth_identity_core::IdentityCore;
+use zero_auth_methods::{
+    AuthMethods, ChallengeRequest, ChallengeResponse as AuthChallengeResponse, EmailAuthRequest,
+    OAuthCompleteRequest as AuthOAuthCompleteRequest,
+};
 use zero_auth_sessions::SessionManager;
 
-use crate::{error::{ApiError, map_service_error}, state::AppState};
+use super::helpers::format_timestamp_rfc3339;
+use crate::{
+    api::helpers::{hash_for_log, parse_oauth_provider},
+    error::{map_service_error, ApiError},
+    state::AppState,
+};
 
 // ============================================================================
 // Request/Response Types
@@ -45,9 +54,8 @@ pub struct EmailLoginRequest {
 #[derive(Debug, Deserialize)]
 pub struct WalletLoginRequest {
     pub wallet_address: String, // hex
-    pub signature: String, // hex
-    /// Message that was signed (for future use)
-    #[allow(dead_code)]
+    pub signature: String,      // hex
+    /// Message that was signed (should be challenge or standard auth message)
     pub message: String,
 }
 
@@ -87,7 +95,7 @@ pub async fn get_challenge(
         machine_id: query.machine_id,
         purpose: Some("authentication".to_string()),
     };
-    
+
     let challenge = state
         .auth_service
         .create_challenge(request)
@@ -95,23 +103,30 @@ pub async fn get_challenge(
         .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
 
     // Serialize the challenge to canonical form
-    let challenge_bytes = serde_json::to_vec(&challenge)
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?;
+    let challenge_bytes =
+        serde_json::to_vec(&challenge).map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?;
 
     Ok(Json(ChallengeResponse {
         challenge_id: challenge.challenge_id,
-        challenge: base64::prelude::BASE64_STANDARD.encode(&challenge_bytes),
-        expires_at: chrono::DateTime::from_timestamp(challenge.exp as i64, 0)
-            .unwrap()
-            .to_rfc3339(),
+        challenge: BASE64_STANDARD.encode(&challenge_bytes),
+        expires_at: format_timestamp_rfc3339(challenge.exp)?,
     }))
 }
 
 /// POST /v1/auth/login/machine
 pub async fn login_machine(
     State(state): State<Arc<AppState>>,
+    ctx: crate::request_context::RequestContext,
     Json(req): Json<MachineLoginRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
+    // Log authentication attempt with request context
+    tracing::info!(
+        ip = %ctx.ip_address,
+        user_agent = %ctx.user_agent,
+        machine_id = %req.machine_id,
+        "Machine authentication attempt"
+    );
+
     // Parse signature
     let signature_bytes = hex::decode(&req.signature)
         .map_err(|_| ApiError::InvalidRequest("Invalid hex encoding".to_string()))?;
@@ -126,11 +141,33 @@ pub async fn login_machine(
 
     let auth_result = state
         .auth_service
-        .authenticate_machine(challenge_response)
+        .authenticate_machine(
+            challenge_response,
+            ctx.ip_address.clone(),
+            ctx.user_agent.clone(),
+        )
         .await
-        .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
+        .map_err(|e| {
+            tracing::warn!(
+                ip = %ctx.ip_address,
+                machine_id = %req.machine_id,
+                error = %e,
+                "Machine authentication failed"
+            );
+            map_service_error(anyhow::anyhow!(e))
+        })?;
 
-    // Create session
+    // Get machine key to extract capabilities
+    let machine = state
+        .identity_service
+        .get_machine_key(req.machine_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get machine key");
+            map_service_error(anyhow::anyhow!(e))
+        })?;
+
+    // Create session with machine capabilities
     let session = state
         .session_service
         .create_session(
@@ -138,8 +175,8 @@ pub async fn login_machine(
             req.machine_id,
             auth_result.namespace_id,
             auth_result.mfa_verified,
-            vec![], // TODO: Convert capabilities to strings
-            vec![], // Default empty scope
+            machine.capabilities.to_string_vec(),
+            vec!["default".to_string()], // Default scope
         )
         .await
         .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
@@ -149,9 +186,7 @@ pub async fn login_machine(
         refresh_token: session.refresh_token,
         session_id: session.session_id,
         machine_id: req.machine_id,
-        expires_at: chrono::DateTime::from_timestamp((session.expires_in + chrono::Utc::now().timestamp() as u64) as i64, 0)
-            .unwrap()
-            .to_rfc3339(),
+        expires_at: format_expires_at(session.expires_in)?,
         warning: None,
     }))
 }
@@ -159,11 +194,20 @@ pub async fn login_machine(
 /// POST /v1/auth/login/email
 pub async fn login_email(
     State(state): State<Arc<AppState>>,
+    ctx: crate::request_context::RequestContext,
     Json(req): Json<EmailLoginRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
+    // Log authentication attempt with request context
+    tracing::info!(
+        ip = %ctx.ip_address,
+        user_agent = %ctx.user_agent,
+        email_hash = %hash_for_log(&req.email),
+        "Email authentication attempt"
+    );
+
     // Authenticate with email+password
     let email_request = EmailAuthRequest {
-        email: req.email,
+        email: req.email.clone(),
         password: req.password,
         machine_id: req.machine_id,
         mfa_code: req.mfa_code,
@@ -171,14 +215,36 @@ pub async fn login_email(
 
     let auth_result = state
         .auth_service
-        .authenticate_email(email_request)
+        .authenticate_email(
+            email_request,
+            ctx.ip_address.clone(),
+            ctx.user_agent.clone(),
+        )
         .await
-        .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
+        .map_err(|e| {
+            tracing::warn!(
+                ip = %ctx.ip_address,
+                email_hash = %hash_for_log(&req.email),
+                error = %e,
+                "Email authentication failed"
+            );
+            map_service_error(anyhow::anyhow!(e))
+        })?;
 
     let machine_id = auth_result.machine_id;
     let warning = auth_result.warning.clone();
 
-    // Create session
+    // Get machine key to extract capabilities
+    let machine = state
+        .identity_service
+        .get_machine_key(machine_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get machine key");
+            map_service_error(anyhow::anyhow!(e))
+        })?;
+
+    // Create session with machine capabilities
     let session = state
         .session_service
         .create_session(
@@ -186,8 +252,8 @@ pub async fn login_email(
             machine_id,
             auth_result.namespace_id,
             auth_result.mfa_verified,
-            vec![], // TODO: Convert capabilities to strings
-            vec![], // Default empty scope
+            machine.capabilities.to_string_vec(),
+            vec!["default".to_string()], // Default scope
         )
         .await
         .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
@@ -197,62 +263,8 @@ pub async fn login_email(
         refresh_token: session.refresh_token,
         session_id: session.session_id,
         machine_id,
-        expires_at: chrono::DateTime::from_timestamp((session.expires_in + chrono::Utc::now().timestamp() as u64) as i64, 0)
-            .unwrap()
-            .to_rfc3339(),
+        expires_at: format_expires_at(session.expires_in)?,
         warning,
-    }))
-}
-
-/// POST /v1/auth/login/wallet
-pub async fn login_wallet(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<WalletLoginRequest>,
-) -> Result<Json<LoginResponse>, ApiError> {
-    // Parse signature
-    let signature_bytes = hex::decode(&req.signature)
-        .map_err(|_| ApiError::InvalidRequest("Invalid signature".to_string()))?;
-
-    // Create wallet signature request
-    use zero_auth_auth_methods::WalletSignature;
-    let wallet_sig = WalletSignature {
-        challenge_id: Uuid::new_v4(), // TODO: Should come from challenge
-        wallet_address: req.wallet_address.clone(),
-        signature: signature_bytes,
-        mfa_code: None,
-    };
-
-    // Authenticate
-    let auth_result = state
-        .auth_service
-        .authenticate_wallet(wallet_sig)
-        .await
-        .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
-
-    let machine_id = auth_result.machine_id;
-
-    let session = state
-        .session_service
-        .create_session(
-            auth_result.identity_id,
-            machine_id,
-            auth_result.namespace_id,
-            auth_result.mfa_verified,
-            vec![], // TODO: Convert capabilities to strings
-            vec![], // Default empty scope
-        )
-        .await
-        .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
-
-    Ok(Json(LoginResponse {
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-        session_id: session.session_id,
-        machine_id,
-        expires_at: chrono::DateTime::from_timestamp((session.expires_in + chrono::Utc::now().timestamp() as u64) as i64, 0)
-            .unwrap()
-            .to_rfc3339(),
-        warning: None,
     }))
 }
 
@@ -264,14 +276,10 @@ pub async fn oauth_initiate(
     // Parse provider
     let provider = parse_oauth_provider(&provider_str)?;
 
-    // For now, use a dummy identity_id for OAuth initiation
-    // In production, this should come from session or be handled differently
-    let identity_id = Uuid::nil();
-
     // Initiate OAuth flow
     let response = state
         .auth_service
-        .oauth_initiate(identity_id, provider)
+        .oauth_initiate_login(provider)
         .await
         .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
 
@@ -284,6 +292,7 @@ pub async fn oauth_initiate(
 /// POST /v1/auth/oauth/:provider/callback
 pub async fn oauth_complete(
     State(state): State<Arc<AppState>>,
+    ctx: crate::request_context::RequestContext,
     Path(provider_str): Path<String>,
     Json(req): Json<OAuthCompleteRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
@@ -299,14 +308,28 @@ pub async fn oauth_complete(
 
     let auth_result = state
         .auth_service
-        .authenticate_oauth(oauth_request)
+        .authenticate_oauth(
+            oauth_request,
+            ctx.ip_address.clone(),
+            ctx.user_agent.clone(),
+        )
         .await
         .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
 
     let machine_id = auth_result.machine_id;
     let warning = auth_result.warning.clone();
 
-    // Create session
+    // Get machine key to extract capabilities
+    let machine = state
+        .identity_service
+        .get_machine_key(machine_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get machine key");
+            map_service_error(anyhow::anyhow!(e))
+        })?;
+
+    // Create session with machine capabilities
     let session = state
         .session_service
         .create_session(
@@ -314,8 +337,8 @@ pub async fn oauth_complete(
             machine_id,
             auth_result.namespace_id,
             auth_result.mfa_verified,
-            vec![], // TODO: Convert capabilities to strings
-            vec![], // Default empty scope
+            machine.capabilities.to_string_vec(),
+            vec!["default".to_string()], // Default scope
         )
         .await
         .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
@@ -325,23 +348,18 @@ pub async fn oauth_complete(
         refresh_token: session.refresh_token,
         session_id: session.session_id,
         machine_id,
-        expires_at: chrono::DateTime::from_timestamp((session.expires_in + chrono::Utc::now().timestamp() as u64) as i64, 0)
-            .unwrap()
-            .to_rfc3339(),
+        expires_at: format_expires_at(session.expires_in)?,
         warning,
     }))
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
+/// Format expires_at timestamp from expires_in seconds
+fn format_expires_at(expires_in: u64) -> Result<String, ApiError> {
+    let now = chrono::Utc::now().timestamp();
+    let expires_in = expires_in as i64;
+    let expires_at = now
+        .checked_add(expires_in)
+        .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("Timestamp overflow")))?;
 
-fn parse_oauth_provider(provider_str: &str) -> Result<zero_auth_auth_methods::OAuthProvider, ApiError> {
-    use zero_auth_auth_methods::OAuthProvider;
-    match provider_str.to_lowercase().as_str() {
-        "google" => Ok(OAuthProvider::Google),
-        "x" | "twitter" => Ok(OAuthProvider::X),
-        "epic" => Ok(OAuthProvider::EpicGames),
-        _ => Err(ApiError::InvalidRequest(format!("Unknown OAuth provider: {}", provider_str))),
-    }
+    format_timestamp_rfc3339(expires_at as u64)
 }

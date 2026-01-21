@@ -12,12 +12,12 @@
 //! - Revocation event publishing
 
 pub mod errors;
-pub mod service;
+mod service;
 pub mod traits;
 pub mod types;
 pub mod webhook;
 
 pub use errors::{Error, Result};
-pub use service::IntegrationsService;
+pub use service::{has_event_scope, should_deliver_event, IntegrationsService};
 pub use traits::Integrations;
 pub use types::*;

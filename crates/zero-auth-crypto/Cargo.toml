@@ -17,11 +17,13 @@ blake3 = { workspace = true }
 argon2 = { workspace = true }
 zeroize = { workspace = true }
 rand = { workspace = true }
-getrandom = { workspace = true }
+sharks = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
-bincode = { workspace = true }
+
+# Encoding
+hex = { workspace = true }
 
 # UUID
 uuid = { workspace = true }
@@ -30,7 +32,6 @@ uuid = { workspace = true }
 thiserror = { workspace = true }
 
 # Utilities
-hex = { workspace = true }
 bitflags = { workspace = true }
 
 [dev-dependencies]

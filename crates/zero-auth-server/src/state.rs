@@ -1,12 +1,12 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
-use zero_auth_storage::RocksDbStorage;
 use zero_auth_identity_core::IdentityCoreService;
-use zero_auth_auth_methods::AuthMethodsService;
-use zero_auth_sessions::{SessionService, NoOpEventPublisher};
 use zero_auth_integrations::IntegrationsService;
+use zero_auth_methods::AuthMethodsService;
 use zero_auth_policy::PolicyEngineImpl;
+use zero_auth_sessions::{NoOpEventPublisher, SessionService};
+use zero_auth_storage::RocksDbStorage;
 
 use crate::config::Config;
 
@@ -16,7 +16,10 @@ pub struct IdentityNoOpPublisher;
 
 #[async_trait]
 impl zero_auth_identity_core::EventPublisher for IdentityNoOpPublisher {
-    async fn publish(&self, _event: zero_auth_identity_core::RevocationEvent) -> zero_auth_identity_core::Result<()> {
+    async fn publish(
+        &self,
+        _event: zero_auth_identity_core::RevocationEvent,
+    ) -> zero_auth_identity_core::Result<()> {
         Ok(())
     }
 }
@@ -24,18 +27,28 @@ impl zero_auth_identity_core::EventPublisher for IdentityNoOpPublisher {
 /// Application state shared across all handlers
 #[derive(Clone)]
 pub struct AppState {
-    /// Server configuration (for future use in handlers)
-    #[allow(dead_code)]
+    /// Server configuration for admin/ops endpoints and diagnostics.
     pub config: Config,
-    /// Direct storage access (for future advanced queries)
-    #[allow(dead_code)]
+    /// Direct storage handle for health checks and admin queries.
     pub storage: Arc<RocksDbStorage>,
-    pub identity_service: Arc<IdentityCoreService<PolicyEngineImpl, IdentityNoOpPublisher, RocksDbStorage>>,
-    pub auth_service: Arc<AuthMethodsService<IdentityCoreService<PolicyEngineImpl, IdentityNoOpPublisher, RocksDbStorage>, PolicyEngineImpl, RocksDbStorage>>,
-    pub session_service: Arc<SessionService<RocksDbStorage, IdentityCoreService<PolicyEngineImpl, IdentityNoOpPublisher, RocksDbStorage>, NoOpEventPublisher>>,
+    pub identity_service:
+        Arc<IdentityCoreService<PolicyEngineImpl, IdentityNoOpPublisher, RocksDbStorage>>,
+    pub auth_service: Arc<
+        AuthMethodsService<
+            IdentityCoreService<PolicyEngineImpl, IdentityNoOpPublisher, RocksDbStorage>,
+            PolicyEngineImpl,
+            RocksDbStorage,
+        >,
+    >,
+    pub session_service: Arc<
+        SessionService<
+            RocksDbStorage,
+            IdentityCoreService<PolicyEngineImpl, IdentityNoOpPublisher, RocksDbStorage>,
+            NoOpEventPublisher,
+        >,
+    >,
     pub integrations_service: Arc<IntegrationsService<RocksDbStorage>>,
-    /// Policy engine for direct access (for future policy evaluation in handlers)
-    #[allow(dead_code)]
+    /// Policy engine handle for policy-aware endpoints.
     pub policy_engine: Arc<PolicyEngineImpl>,
 }
 
@@ -43,32 +56,67 @@ impl AppState {
     pub async fn new(config: Config) -> Result<Self> {
         // Initialize storage
         let storage = Arc::new(RocksDbStorage::open(&config.database_path)?);
-        
+
         // Initialize policy engine
         let policy_engine = Arc::new(PolicyEngineImpl::new());
-        
+
         // Initialize services
         let identity_service = Arc::new(IdentityCoreService::new(
             policy_engine.clone(),
             Arc::new(IdentityNoOpPublisher),
             storage.clone(),
         ));
-        
-        let auth_service = Arc::new(AuthMethodsService::new(
+
+        // Build OAuth configs from environment
+        let oauth_configs = zero_auth_methods::OAuthConfigs {
+            google: config
+                .oauth_google
+                .as_ref()
+                .map(|c| zero_auth_methods::OAuthProviderConfig {
+                    client_id: c.client_id.clone(),
+                    client_secret: c.client_secret.clone(),
+                    redirect_uri: c.redirect_uri.clone(),
+                }),
+            x: config
+                .oauth_x
+                .as_ref()
+                .map(|c| zero_auth_methods::OAuthProviderConfig {
+                    client_id: c.client_id.clone(),
+                    client_secret: c.client_secret.clone(),
+                    redirect_uri: c.redirect_uri.clone(),
+                }),
+            epic_games: config.oauth_epic.as_ref().map(|c| {
+                zero_auth_methods::OAuthProviderConfig {
+                    client_id: c.client_id.clone(),
+                    client_secret: c.client_secret.clone(),
+                    redirect_uri: c.redirect_uri.clone(),
+                }
+            }),
+        };
+
+        let auth_service = Arc::new(AuthMethodsService::with_oauth_configs(
             identity_service.clone(),
             policy_engine.clone(),
             storage.clone(),
+            config.service_master_key,
+            oauth_configs,
         ));
-        
-        let session_service = Arc::new(SessionService::new(
+
+        let session_service = Arc::new(SessionService::with_event_publisher(
             storage.clone(),
             identity_service.clone(),
+            Arc::new(NoOpEventPublisher),
             config.service_master_key,
             config.jwt_issuer.clone(),
             vec![config.jwt_audience.clone()],
+            config.access_token_expiry,
+            config.refresh_token_expiry,
         ));
-        
+
         let integrations_service = Arc::new(IntegrationsService::new(storage.clone()));
+
+        // Initialize session service signing keys
+        session_service.initialize().await?;
 
         Ok(AppState {
             config,

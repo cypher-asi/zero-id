@@ -22,8 +22,9 @@ impl OAuthClient {
 
     /// Build authorization URL
     pub fn build_auth_url(&self, config: &OAuthConfig, state: &str) -> Result<String> {
-        let mut url = Url::parse(&config.auth_url)
-            .map_err(|e| AuthMethodsError::OAuthConfigInvalid(format!("Invalid auth URL: {}", e)))?;
+        let mut url = Url::parse(&config.auth_url).map_err(|e| {
+            AuthMethodsError::OAuthConfigInvalid(format!("Invalid auth URL: {}", e))
+        })?;
 
         url.query_pairs_mut()
             .append_pair("client_id", &config.client_id)
@@ -54,7 +55,9 @@ impl OAuthClient {
             .form(&params)
             .send()
             .await
-            .map_err(|e| AuthMethodsError::OAuthProviderError(format!("Token exchange failed: {}", e)))?;
+            .map_err(|e| {
+                AuthMethodsError::OAuthProviderError(format!("Token exchange failed: {}", e))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -65,10 +68,9 @@ impl OAuthClient {
             )));
         }
 
-        let token_response: OAuthTokenResponse = response
-            .json()
-            .await
-            .map_err(|e| AuthMethodsError::OAuthProviderError(format!("Failed to parse token response: {}", e)))?;
+        let token_response: OAuthTokenResponse = response.json().await.map_err(|e| {
+            AuthMethodsError::OAuthProviderError(format!("Failed to parse token response: {}", e))
+        })?;
 
         Ok(token_response)
     }
@@ -85,7 +87,9 @@ impl OAuthClient {
             .bearer_auth(access_token)
             .send()
             .await
-            .map_err(|e| AuthMethodsError::OAuthProviderError(format!("User info request failed: {}", e)))?;
+            .map_err(|e| {
+                AuthMethodsError::OAuthProviderError(format!("User info request failed: {}", e))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -97,10 +101,9 @@ impl OAuthClient {
         }
 
         // Parse response based on provider format
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| AuthMethodsError::OAuthProviderError(format!("Failed to parse user info: {}", e)))?;
+        let json: serde_json::Value = response.json().await.map_err(|e| {
+            AuthMethodsError::OAuthProviderError(format!("Failed to parse user info: {}", e))
+        })?;
 
         // Extract user info (format varies by provider)
         let user_info = OAuthUserInfo {

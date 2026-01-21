@@ -20,7 +20,6 @@ serde = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 
 # UUID
 uuid = { workspace = true }

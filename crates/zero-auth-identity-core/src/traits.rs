@@ -29,12 +29,16 @@ pub trait IdentityCore: Send + Sync {
     /// Re-enable a disabled identity
     async fn enable_identity(&self, identity_id: Uuid) -> Result<()>;
 
-    /// Freeze an identity (security lockdown)
-    async fn freeze_identity(&self, identity_id: Uuid, reason: FreezeReason) -> Result<()>;
+    /// Freeze an identity (security lockdown, requires approvals)
+    async fn freeze_identity(
+        &self,
+        identity_id: Uuid,
+        reason: FreezeReason,
+        approvals: Vec<Approval>,
+    ) -> Result<()>;
 
     /// Unfreeze an identity (requires ceremony)
-    async fn unfreeze_identity(&self, identity_id: Uuid, approvals: Vec<Approval>)
-        -> Result<()>;
+    async fn unfreeze_identity(&self, identity_id: Uuid, approvals: Vec<Approval>) -> Result<()>;
 
     /// Enroll a new Machine Key for an identity
     async fn enroll_machine_key(
@@ -42,17 +46,17 @@ pub trait IdentityCore: Send + Sync {
         identity_id: Uuid,
         machine_key: MachineKey,
         authorization_signature: Vec<u8>,
+        mfa_verified: bool,
+        ip_address: String,
+        user_agent: String,
     ) -> Result<Uuid>;
 
     /// Get Machine Key by ID
     async fn get_machine_key(&self, machine_id: Uuid) -> Result<MachineKey>;
 
     /// List all Machine Keys for an identity in a namespace
-    async fn list_machines(
-        &self,
-        identity_id: Uuid,
-        namespace_id: Uuid,
-    ) -> Result<Vec<MachineKey>>;
+    async fn list_machines(&self, identity_id: Uuid, namespace_id: Uuid)
+        -> Result<Vec<MachineKey>>;
 
     /// Revoke a Machine Key
     async fn revoke_machine_key(
@@ -60,6 +64,9 @@ pub trait IdentityCore: Send + Sync {
         machine_id: Uuid,
         revoked_by: Uuid,
         reason: String,
+        mfa_verified: bool,
+        ip_address: String,
+        user_agent: String,
     ) -> Result<()>;
 
     /// Rotate Neural Key (requires multi-machine approval)

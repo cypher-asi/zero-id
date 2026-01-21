@@ -1,12 +1,12 @@
 //! Hashing utilities using BLAKE3 and Argon2id.
 
 use crate::{constants::*, errors::*};
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use blake3::Hasher as Blake3Hasher;
 
 /// Hash data using BLAKE3
-/// 
+///
 /// BLAKE3 is used for fast, non-cryptographic hashing of data (checksums, key IDs).
 /// For password hashing, use `hash_password` with Argon2id.
 pub fn blake3_hash(data: &[u8]) -> [u8; 32] {
@@ -61,8 +61,7 @@ pub fn hash_password(password: &[u8], salt: &SaltString) -> Result<String> {
 ///
 /// `Ok(())` if password matches, `Err` otherwise
 pub fn verify_password(password: &[u8], hash_str: &str) -> Result<()> {
-    let parsed_hash = PasswordHash::new(hash_str)
-        .map_err(|_| CryptoError::InvalidHashFormat)?;
+    let parsed_hash = PasswordHash::new(hash_str).map_err(|_| CryptoError::InvalidHashFormat)?;
 
     let argon2 = Argon2::new(
         argon2::Algorithm::Argon2id,

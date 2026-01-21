@@ -184,16 +184,14 @@ mod tests {
     #[test]
     fn test_jwks_cache_entry_validity() {
         let jwks = JwksKeySet {
-            keys: vec![
-                JwksKey {
-                    kty: "RSA".to_string(),
-                    kid: Some("key1".to_string()),
-                    use_: Some("sig".to_string()),
-                    alg: Some("RS256".to_string()),
-                    n: "test_n".to_string(),
-                    e: "AQAB".to_string(),
-                },
-            ],
+            keys: vec![JwksKey {
+                kty: "RSA".to_string(),
+                kid: Some("key1".to_string()),
+                use_: Some("sig".to_string()),
+                alg: Some("RS256".to_string()),
+                n: "test_n".to_string(),
+                e: "AQAB".to_string(),
+            }],
         };
 
         let entry = JwksCacheEntry {
@@ -215,16 +213,14 @@ mod tests {
     #[test]
     fn test_jwks_cache_entry_clone() {
         let jwks = JwksKeySet {
-            keys: vec![
-                JwksKey {
-                    kty: "RSA".to_string(),
-                    kid: Some("key1".to_string()),
-                    use_: Some("sig".to_string()),
-                    alg: Some("RS256".to_string()),
-                    n: "test_n".to_string(),
-                    e: "AQAB".to_string(),
-                },
-            ],
+            keys: vec![JwksKey {
+                kty: "RSA".to_string(),
+                kid: Some("key1".to_string()),
+                use_: Some("sig".to_string()),
+                alg: Some("RS256".to_string()),
+                n: "test_n".to_string(),
+                e: "AQAB".to_string(),
+            }],
         };
 
         let entry1 = JwksCacheEntry {

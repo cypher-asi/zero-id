@@ -47,7 +47,9 @@ mod tests {
             Ok(config) => {
                 assert_eq!(config.issuer, "https://accounts.google.com");
                 assert!(config.jwks_uri.contains("googleapis.com"));
-                assert!(config.id_token_signing_alg_values_supported.contains(&"RS256".to_string()));
+                assert!(config
+                    .id_token_signing_alg_values_supported
+                    .contains(&"RS256".to_string()));
             }
             Err(e) => {
                 // Network error is acceptable in tests
@@ -61,6 +63,9 @@ mod tests {
         // X/Twitter doesn't support OIDC discovery
         let result = discover_oidc_config(OAuthProvider::X).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AuthMethodsError::OidcDiscoveryFailed(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            AuthMethodsError::OidcDiscoveryFailed(_)
+        ));
     }
 }

@@ -6,8 +6,8 @@ pub enum SessionError {
     #[error("Session not found: {0}")]
     SessionNotFound(Uuid),
 
-    #[error("Session expired")]
-    SessionExpired,
+    #[error("Session expired: session_id={session_id}, expired_at={expired_at}")]
+    SessionExpired { session_id: Uuid, expired_at: u64 },
 
     #[error("Session revoked: {reason}")]
     SessionRevoked { reason: String },

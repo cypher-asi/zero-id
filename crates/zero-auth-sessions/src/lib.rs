@@ -1,12 +1,12 @@
-pub mod types;
 pub mod errors;
+mod service;
 pub mod traits;
-pub mod service;
+pub mod types;
 
 #[cfg(test)]
 mod tests;
 
-pub use types::*;
 pub use errors::*;
+pub use service::{base64_url_encode, generate_random_bytes, sha256, SessionService};
 pub use traits::*;
-pub use service::*;
+pub use types::*;

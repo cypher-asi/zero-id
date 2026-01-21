@@ -24,45 +24,44 @@ pub struct ErrorDetails {
 pub enum ApiError {
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
-    
+
     #[error("Unauthorized")]
     Unauthorized,
-    
+
     /// Forbidden access
-    #[allow(dead_code)]
     #[error("Forbidden: {0}")]
     Forbidden(String),
-    
+
     #[error("Not found: {0}")]
     NotFound(String),
-    
+
     #[error("Conflict: {0}")]
     Conflict(String),
-    
+
     /// Rate limit exceeded
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used by future rate limit enforcement.
     #[error("Rate limited")]
     RateLimited,
-    
+
     #[error("Identity frozen")]
     IdentityFrozen,
-    
+
     #[error("Machine revoked")]
     MachineRevoked,
-    
+
     /// MFA verification required
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used when MFA enforcement is enabled.
     #[error("MFA required")]
     MfaRequired,
-    
+
     /// Challenge has expired
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Returned by challenge validation paths.
     #[error("Challenge expired")]
     ChallengeExpired,
-    
+
     #[error("Invalid signature")]
     InvalidSignature,
-    
+
     #[error("Internal server error")]
     Internal(#[from] anyhow::Error),
 }
@@ -70,36 +69,18 @@ pub enum ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, code, message, details) = match self {
-            ApiError::InvalidRequest(msg) => (
-                StatusCode::BAD_REQUEST,
-                "INVALID_REQUEST",
-                msg,
-                None,
-            ),
+            ApiError::InvalidRequest(msg) => {
+                (StatusCode::BAD_REQUEST, "INVALID_REQUEST", msg, None)
+            }
             ApiError::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 "UNAUTHORIZED",
                 "Missing or invalid credentials".to_string(),
                 None,
             ),
-            ApiError::Forbidden(msg) => (
-                StatusCode::FORBIDDEN,
-                "FORBIDDEN",
-                msg,
-                None,
-            ),
-            ApiError::NotFound(msg) => (
-                StatusCode::NOT_FOUND,
-                "NOT_FOUND",
-                msg,
-                None,
-            ),
-            ApiError::Conflict(msg) => (
-                StatusCode::CONFLICT,
-                "CONFLICT",
-                msg,
-                None,
-            ),
+            ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, "FORBIDDEN", msg, None),
+            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "NOT_FOUND", msg, None),
+            ApiError::Conflict(msg) => (StatusCode::CONFLICT, "CONFLICT", msg, None),
             ApiError::RateLimited => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "RATE_LIMITED",
@@ -161,8 +142,21 @@ impl IntoResponse for ApiError {
 
 /// Helper to convert service errors to API errors
 pub fn map_service_error(error: anyhow::Error) -> ApiError {
+    // Try to downcast to specific error types first
+    if let Some(zero_auth_methods::AuthMethodsError::MachineIdRequired {
+        hint,
+        available_machines,
+    }) = error.downcast_ref::<zero_auth_methods::AuthMethodsError>()
+    {
+        return ApiError::InvalidRequest(format!(
+            "{} Available machines: {}",
+            hint,
+            available_machines.len()
+        ));
+    }
+
     let error_str = error.to_string();
-    
+
     if error_str.contains("not found") {
         ApiError::NotFound(error_str)
     } else if error_str.contains("already exists") {
@@ -173,6 +167,17 @@ pub fn map_service_error(error: anyhow::Error) -> ApiError {
         ApiError::MachineRevoked
     } else if error_str.contains("signature") {
         ApiError::InvalidSignature
+    } else if error_str.contains("Password")
+        || error_str.contains("password")
+        || error_str.contains("Email")
+        || error_str.contains("email")
+        || error_str.contains("already registered")
+    {
+        // Password/email validation errors should be 400 Bad Request
+        ApiError::InvalidRequest(error_str)
+    } else if error_str.contains("Machine ID required") {
+        // Machine ID required errors should be 400 Bad Request
+        ApiError::InvalidRequest(error_str)
     } else {
         ApiError::Internal(error)
     }

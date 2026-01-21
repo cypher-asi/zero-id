@@ -39,8 +39,11 @@ pub struct RefreshTokenRecord {
 pub struct JwtSigningKey {
     pub key_id: [u8; 16],
     pub epoch: u64,
-    pub private_key: [u8; 32], // Ed25519 seed
-    pub public_key: [u8; 32],  // Ed25519 public key
+    /// Encrypted Ed25519 seed (ciphertext includes 16-byte auth tag)
+    pub private_key_encrypted: Vec<u8>,
+    /// Nonce used for private key encryption (24 bytes for XChaCha20-Poly1305)
+    pub private_key_nonce: [u8; 24],
+    pub public_key: [u8; 32], // Ed25519 public key
     pub created_at: u64,
     pub expires_at: Option<u64>,
     pub status: KeyStatus,
@@ -59,13 +62,13 @@ pub enum KeyStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenClaims {
     // Standard claims
-    pub iss: String,                // Issuer
-    pub sub: String,                // Subject (identity_id)
-    pub aud: Vec<String>,           // Audience
-    pub iat: u64,                   // Issued at
-    pub exp: u64,                   // Expiration
-    pub nbf: u64,                   // Not before
-    pub jti: String,                // JWT ID
+    pub iss: String,      // Issuer
+    pub sub: String,      // Subject (identity_id)
+    pub aud: Vec<String>, // Audience
+    pub iat: u64,         // Issued at
+    pub exp: u64,         // Expiration
+    pub nbf: u64,         // Not before
+    pub jti: String,      // JWT ID
 
     // Custom claims
     pub machine_id: String,
@@ -83,8 +86,8 @@ pub struct SessionTokens {
     pub access_token: String,
     pub refresh_token: String,
     pub session_id: Uuid,
-    pub expires_in: u64,        // Seconds until access token expires
-    pub token_type: String,     // "Bearer"
+    pub expires_in: u64,    // Seconds until access token expires
+    pub token_type: String, // "Bearer"
 }
 
 /// JWKS response for public key distribution
@@ -96,20 +99,23 @@ pub struct JwksResponse {
 /// JSON Web Key for JWKS endpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonWebKey {
-    pub kty: String,           // Key type: "OKP"
+    pub kty: String, // Key type: "OKP"
     #[serde(rename = "use", skip_serializing_if = "Option::is_none")]
-    pub use_: Option<String>,  // "sig"
+    pub use_: Option<String>, // "sig"
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub alg: Option<String>,   // "EdDSA"
+    pub alg: Option<String>, // "EdDSA"
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kid: Option<String>,   // Key ID
-    pub crv: String,           // Curve: "Ed25519"
-    pub x: String,             // Base64url encoded public key
+    pub kid: Option<String>, // Key ID
+    pub crv: String, // Curve: "Ed25519"
+    pub x: String,   // Base64url encoded public key
 }
 
 /// Token introspection response
+///
+/// Extends standard OAuth2 introspection with zero-auth specific claims
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenIntrospection {
+    // Standard OAuth2 introspection fields
     pub active: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
@@ -133,6 +139,18 @@ pub struct TokenIntrospection {
     pub iss: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jti: Option<String>,
+
+    // zero-auth specific fields
+    pub identity_id: Uuid,
+    pub machine_id: Uuid,
+    pub namespace_id: Uuid,
+    pub session_id: Uuid,
+    pub mfa_verified: bool,
+    pub capabilities: Vec<String>,
+    pub scopes: Vec<String>,
+    pub revocation_epoch: u64,
+    pub issued_at: u64,
+    pub expires_at: u64,
 }
 
 /// Revocation event for integration subsystem
@@ -156,17 +174,12 @@ pub enum RevocationEventType {
     IdentityFrozen,
 }
 
-/// Helper function to get current timestamp
-pub fn current_timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-}
+// Re-export current_timestamp from zero-auth-crypto
+pub use zero_auth_crypto::current_timestamp;
 
 /// Helper function to compute SHA256 hash
 pub fn sha256(data: &[u8]) -> [u8; 32] {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(data);
     hasher.finalize().into()

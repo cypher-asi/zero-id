@@ -1,9 +1,6 @@
 //! Auth Methods trait definitions.
 
-use crate::{
-    errors::Result,
-    types::*,
-};
+use crate::{errors::Result, types::*};
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -74,15 +71,29 @@ pub trait AuthMethods: Send + Sync {
         provider: OAuthProvider,
     ) -> Result<OAuthInitiateResponse>;
 
+    /// Initiate OAuth login flow
+    ///
+    /// Generates OAuth state for login and returns authorization URL.
+    async fn oauth_initiate_login(&self, provider: OAuthProvider) -> Result<OAuthInitiateResponse>;
+
     /// Complete OAuth link flow
     ///
     /// Exchanges code for tokens, gets user info, and links to identity.
-    async fn oauth_complete(&self, request: OAuthCompleteRequest) -> Result<Uuid>;
+    async fn oauth_complete(
+        &self,
+        identity_id: Uuid,
+        request: OAuthCompleteRequest,
+    ) -> Result<Uuid>;
 
     /// Authenticate with OAuth
     ///
     /// Performs OAuth flow and returns auth result if account is linked.
-    async fn authenticate_oauth(&self, request: OAuthCompleteRequest) -> Result<AuthResult>;
+    async fn authenticate_oauth(
+        &self,
+        request: OAuthCompleteRequest,
+        ip_address: String,
+        user_agent: String,
+    ) -> Result<AuthResult>;
 
     /// Revoke OAuth link
     ///
@@ -112,7 +123,11 @@ pub trait AuthMethods: Send + Sync {
     /// Revoke wallet credential
     ///
     /// Removes wallet credential from identity.
-    async fn revoke_wallet_credential(&self, identity_id: Uuid, wallet_address: String) -> Result<()>;
+    async fn revoke_wallet_credential(
+        &self,
+        identity_id: Uuid,
+        wallet_address: String,
+    ) -> Result<()>;
 
     /// List credentials for identity
     ///

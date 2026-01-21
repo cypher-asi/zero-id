@@ -1,10 +1,10 @@
-# Rust build artifacts
-/target/
-**/target/
-*.pdb
+# Rust
+target/
+Cargo.lock
 
-# Database files
-/data/
+# RocksDB data
+data/
+*.db/
 
 # IDE
 .idea/
@@ -17,12 +17,12 @@
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-
-# Environment variables
+# Environment
 .env
 .env.local
 
-# Backup files
-*.bak
+# Session data
+.session/
+
+# Test artifacts
+*.log

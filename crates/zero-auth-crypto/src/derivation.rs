@@ -38,19 +38,22 @@ pub fn hkdf_derive_32(ikm: &[u8], info: &[u8]) -> Result<[u8; 32]> {
     Ok(key)
 }
 
-/// Derive Central Public Key from Neural Key
+/// Derive Identity Signing Keypair from Neural Key
 ///
 /// As specified in cryptographic-constants.md § 4.2
 ///
 /// Formula: identity_signing_seed = HKDF(neural_key, "cypher:auth:identity:v1" || identity_id)
 ///          (private_key, public_key) = Ed25519_derive(identity_signing_seed)
-pub fn derive_central_public_key(
+///
+/// The Identity Signing Key (formerly "central key") is used to sign identity-level
+/// operations such as machine enrollments.
+pub fn derive_identity_signing_keypair(
     neural_key: &NeuralKey,
     identity_id: &uuid::Uuid,
 ) -> Result<([u8; 32], Ed25519KeyPair)> {
     // Build info: "cypher:auth:identity:v1" || identity_id
-    let mut info = Vec::with_capacity(DOMAIN_IDENTITY.len() + 16);
-    info.extend_from_slice(DOMAIN_IDENTITY.as_bytes());
+    let mut info = Vec::with_capacity(DOMAIN_IDENTITY_SIGNING.len() + 16);
+    info.extend_from_slice(DOMAIN_IDENTITY_SIGNING.as_bytes());
     info.extend_from_slice(identity_id.as_bytes());
 
     // Derive signing seed
@@ -167,24 +170,6 @@ pub fn derive_mfa_kek(
     Ok(Zeroizing::new(kek))
 }
 
-/// Derive backup KEK from Neural Key for recovery share encryption
-///
-/// As specified in cryptographic-constants.md § 3.5 Option 2
-///
-/// Formula: backup_kek = HKDF(neural_key, "cypher:share-backup-kek:v1" || identity_id)
-pub fn derive_share_backup_kek(
-    neural_key: &NeuralKey,
-    identity_id: &uuid::Uuid,
-) -> Result<Zeroizing<[u8; 32]>> {
-    // Build info: "cypher:share-backup-kek:v1" || identity_id
-    let mut info = Vec::with_capacity(DOMAIN_SHARE_BACKUP_KEK.len() + 16);
-    info.extend_from_slice(DOMAIN_SHARE_BACKUP_KEK.as_bytes());
-    info.extend_from_slice(identity_id.as_bytes());
-
-    let kek = hkdf_derive_32(neural_key.as_bytes(), &info)?;
-    Ok(Zeroizing::new(kek))
-}
-
 /// Derive JWT signing key seed from service master key
 ///
 /// As specified in cryptographic-constants.md § 9.2
@@ -240,11 +225,11 @@ mod tests {
     }
 
     #[test]
-    fn test_derive_central_public_key() {
+    fn test_derive_identity_signing_keypair() {
         let neural_key = NeuralKey::generate().unwrap();
         let identity_id = uuid::Uuid::new_v4();
 
-        let (public_key, keypair) = derive_central_public_key(&neural_key, &identity_id).unwrap();
+        let (public_key, keypair) = derive_identity_signing_keypair(&neural_key, &identity_id).unwrap();
 
         assert_eq!(public_key.len(), 32);
         assert_eq!(keypair.public_key_bytes(), public_key);
@@ -291,7 +276,10 @@ mod tests {
 
         assert_eq!(machine_key.signing_public_key().len(), 32);
         assert_eq!(machine_key.encryption_public_key().len(), 32);
-        assert_eq!(machine_key.capabilities(), MachineKeyCapabilities::FULL_DEVICE);
+        assert_eq!(
+            machine_key.capabilities(),
+            MachineKeyCapabilities::FULL_DEVICE
+        );
     }
 
     #[test]
@@ -300,15 +288,6 @@ mod tests {
         let identity_id = uuid::Uuid::new_v4();
 
         let kek = derive_mfa_kek(&neural_key, &identity_id).unwrap();
-        assert_eq!(kek.len(), 32);
-    }
-
-    #[test]
-    fn test_derive_share_backup_kek() {
-        let neural_key = NeuralKey::generate().unwrap();
-        let identity_id = uuid::Uuid::new_v4();
-
-        let kek = derive_share_backup_kek(&neural_key, &identity_id).unwrap();
         assert_eq!(kek.len(), 32);
     }
 
@@ -338,18 +317,15 @@ mod tests {
         let machine_id = uuid::Uuid::new_v4();
 
         // These should all produce different outputs due to domain separation
-        let central_key = derive_central_public_key(&neural_key, &identity_id).unwrap().0;
+        let identity_signing_key = derive_identity_signing_keypair(&neural_key, &identity_id)
+            .unwrap()
+            .0;
         let mfa_kek = derive_mfa_kek(&neural_key, &identity_id).unwrap();
-        let backup_kek = derive_share_backup_kek(&neural_key, &identity_id).unwrap();
-        let machine_seed =
-            derive_machine_seed(&neural_key, &identity_id, &machine_id, 1).unwrap();
+        let machine_seed = derive_machine_seed(&neural_key, &identity_id, &machine_id, 1).unwrap();
 
         // All should be different
-        assert_ne!(central_key, *mfa_kek);
-        assert_ne!(central_key, *backup_kek);
-        assert_ne!(central_key, *machine_seed);
-        assert_ne!(*mfa_kek, *backup_kek);
+        assert_ne!(identity_signing_key, *mfa_kek);
+        assert_ne!(identity_signing_key, *machine_seed);
         assert_ne!(*mfa_kek, *machine_seed);
-        assert_ne!(*backup_kek, *machine_seed);
     }
 }

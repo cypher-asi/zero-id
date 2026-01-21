@@ -18,7 +18,7 @@ pub enum IdentityStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Identity {
     pub identity_id: Uuid,
-    pub central_public_key: [u8; 32],
+    pub identity_signing_public_key: [u8; 32],
     pub status: IdentityStatus,
     pub created_at: u64,
     pub updated_at: u64,
@@ -77,7 +77,7 @@ pub struct IdentityNamespaceMembership {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateIdentityRequest {
     pub identity_id: Uuid,
-    pub central_public_key: [u8; 32],
+    pub identity_signing_public_key: [u8; 32],
     pub machine_key: MachineKey,
     pub authorization_signature: Vec<u8>,
     pub namespace_name: Option<String>,
@@ -96,7 +96,7 @@ pub struct Approval {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RotationRequest {
     pub identity_id: Uuid,
-    pub new_central_public_key: [u8; 32],
+    pub new_identity_signing_public_key: [u8; 32],
     pub approvals: Vec<Approval>,
     pub new_machines: Vec<MachineKey>,
 }
@@ -146,13 +146,8 @@ pub struct RevocationEvent {
     pub reason: String,
 }
 
-/// Get current timestamp in seconds since Unix epoch
-pub fn current_timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs()
-}
+// Re-export current_timestamp from zero-auth-crypto
+pub use zero_auth_crypto::current_timestamp;
 
 #[cfg(test)]
 mod tests {

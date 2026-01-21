@@ -29,6 +29,9 @@ pub const CF_MFA_SECRETS: &str = "mfa_secrets";
 /// Challenges: challenge_id → Challenge (TTL: 5 min)
 pub const CF_CHALLENGES: &str = "challenges";
 
+/// Used nonces: nonce_hex → expiry_timestamp (TTL: challenge TTL + 60s)
+pub const CF_USED_NONCES: &str = "used_nonces";
+
 /// OAuth/OIDC states: state_id → OAuthState (TTL: 10 min)
 pub const CF_OAUTH_STATES: &str = "oauth_states";
 
@@ -95,6 +98,7 @@ pub fn all_column_families() -> Vec<&'static str> {
         CF_AUTH_CREDENTIALS,
         CF_MFA_SECRETS,
         CF_CHALLENGES,
+        CF_USED_NONCES,
         CF_OAUTH_STATES,
         CF_OAUTH_LINKS,
         CF_OAUTH_LINKS_BY_IDENTITY,

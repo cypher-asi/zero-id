@@ -18,20 +18,15 @@ async-trait = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
-bincode = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 
 # UUID
 uuid = { workspace = true }
 
 # Tracing
 tracing = { workspace = true }
-
-# Utilities
-bitflags = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

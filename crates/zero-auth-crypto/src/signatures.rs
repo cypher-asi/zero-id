@@ -2,6 +2,43 @@
 
 use crate::{constants::*, errors::*, keys::Ed25519KeyPair};
 use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+/// Challenge for authentication
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Challenge {
+    /// Unique challenge ID
+    pub challenge_id: Uuid,
+    /// Machine ID or entity ID this challenge is for
+    pub entity_id: Uuid,
+    /// Entity type (machine, wallet, email)
+    pub entity_type: EntityType,
+    /// Purpose of the challenge
+    pub purpose: String,
+    /// Audience (service URL)
+    pub aud: String,
+    /// Issued at timestamp
+    pub iat: u64,
+    /// Expiry timestamp
+    pub exp: u64,
+    /// Random nonce
+    pub nonce: [u8; 32],
+    /// Whether challenge has been used (replay protection)
+    pub used: bool,
+}
+
+/// Entity type for challenges
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[repr(u8)]
+pub enum EntityType {
+    /// Machine key authentication
+    Machine = 0x01,
+    /// Wallet signature authentication
+    Wallet = 0x02,
+    /// Email + password authentication
+    Email = 0x03,
+}
 
 /// Sign a message with Ed25519
 ///
@@ -48,14 +85,14 @@ pub fn verify_signature(
 ///
 /// As specified in 03-identity-core.md § 3.3
 ///
-/// Format: version(1) || identity_id(16) || central_public_key(32) ||
+/// Format: version(1) || identity_id(16) || identity_signing_public_key(32) ||
 ///         first_machine_id(16) || machine_signing_key(32) ||
 ///         machine_encryption_key(32) || created_at(8)
 ///
 /// Total: 137 bytes
 pub fn canonicalize_identity_creation_message(
     identity_id: &uuid::Uuid,
-    central_public_key: &[u8; 32],
+    identity_signing_public_key: &[u8; 32],
     first_machine_id: &uuid::Uuid,
     machine_signing_key: &[u8; 32],
     machine_encryption_key: &[u8; 32],
@@ -65,7 +102,7 @@ pub fn canonicalize_identity_creation_message(
 
     message[0] = 0x01; // Version
     message[1..17].copy_from_slice(identity_id.as_bytes());
-    message[17..49].copy_from_slice(central_public_key);
+    message[17..49].copy_from_slice(identity_signing_public_key);
     message[49..65].copy_from_slice(first_machine_id.as_bytes());
     message[65..97].copy_from_slice(machine_signing_key);
     message[97..129].copy_from_slice(machine_encryption_key);
@@ -133,21 +170,70 @@ pub fn canonicalize_recovery_approval_message(
 ///
 /// As specified in 03-identity-core.md § 7.3
 ///
-/// Format: version(1) || identity_id(16) || new_central_public_key(32) ||
+/// Format: version(1) || identity_id(16) || new_identity_signing_public_key(32) ||
 ///         timestamp(8)
 ///
 /// Total: 57 bytes
 pub fn canonicalize_rotation_approval_message(
     identity_id: &uuid::Uuid,
-    new_central_public_key: &[u8; 32],
+    new_identity_signing_public_key: &[u8; 32],
     timestamp: u64,
 ) -> [u8; 57] {
     let mut message = [0u8; 57];
 
     message[0] = 0x01; // Version
     message[1..17].copy_from_slice(identity_id.as_bytes());
-    message[17..49].copy_from_slice(new_central_public_key);
+    message[17..49].copy_from_slice(new_identity_signing_public_key);
     message[49..57].copy_from_slice(&timestamp.to_be_bytes());
+
+    message
+}
+
+/// Canonicalize challenge into binary format for signing
+///
+/// Binary layout (130 bytes total):
+/// - version: u8 (1 byte)
+/// - challenge_id: UUID (16 bytes)
+/// - entity_id: UUID (16 bytes)
+/// - entity_type: u8 (1 byte)
+/// - purpose: [u8; 16] padded (16 bytes)
+/// - aud: [u8; 32] padded (32 bytes)
+/// - iat: u64 big-endian (8 bytes)
+/// - exp: u64 big-endian (8 bytes)
+/// - nonce: [u8; 32] (32 bytes)
+pub fn canonicalize_challenge(challenge: &Challenge) -> [u8; 130] {
+    let mut message = [0u8; 130];
+
+    // Version
+    message[0] = 0x01;
+
+    // Challenge ID
+    message[1..17].copy_from_slice(challenge.challenge_id.as_bytes());
+
+    // Entity ID
+    message[17..33].copy_from_slice(challenge.entity_id.as_bytes());
+
+    // Entity type
+    message[33] = challenge.entity_type as u8;
+
+    // Purpose (padded to 16 bytes)
+    let purpose_bytes = challenge.purpose.as_bytes();
+    let purpose_len = purpose_bytes.len().min(16);
+    message[34..(34 + purpose_len)].copy_from_slice(&purpose_bytes[..purpose_len]);
+
+    // Audience (padded to 32 bytes)
+    let aud_bytes = challenge.aud.as_bytes();
+    let aud_len = aud_bytes.len().min(32);
+    message[50..(50 + aud_len)].copy_from_slice(&aud_bytes[..aud_len]);
+
+    // IAT (issued at)
+    message[82..90].copy_from_slice(&challenge.iat.to_be_bytes());
+
+    // EXP (expiry)
+    message[90..98].copy_from_slice(&challenge.exp.to_be_bytes());
+
+    // Nonce
+    message[98..130].copy_from_slice(&challenge.nonce);
 
     message
 }
@@ -196,7 +282,7 @@ mod tests {
     #[test]
     fn test_canonicalize_identity_creation() {
         let identity_id = uuid::Uuid::new_v4();
-        let central_public_key = [1u8; 32];
+        let identity_signing_public_key = [1u8; 32];
         let first_machine_id = uuid::Uuid::new_v4();
         let machine_signing_key = [2u8; 32];
         let machine_encryption_key = [3u8; 32];
@@ -204,7 +290,7 @@ mod tests {
 
         let message = canonicalize_identity_creation_message(
             &identity_id,
-            &central_public_key,
+            &identity_signing_public_key,
             &first_machine_id,
             &machine_signing_key,
             &machine_encryption_key,
@@ -240,7 +326,7 @@ mod tests {
     #[test]
     fn test_canonical_messages_are_deterministic() {
         let identity_id = uuid::Uuid::new_v4();
-        let central_public_key = [1u8; 32];
+        let identity_signing_public_key = [1u8; 32];
         let first_machine_id = uuid::Uuid::new_v4();
         let machine_signing_key = [2u8; 32];
         let machine_encryption_key = [3u8; 32];
@@ -248,7 +334,7 @@ mod tests {
 
         let message1 = canonicalize_identity_creation_message(
             &identity_id,
-            &central_public_key,
+            &identity_signing_public_key,
             &first_machine_id,
             &machine_signing_key,
             &machine_encryption_key,
@@ -257,7 +343,7 @@ mod tests {
 
         let message2 = canonicalize_identity_creation_message(
             &identity_id,
-            &central_public_key,
+            &identity_signing_public_key,
             &first_machine_id,
             &machine_signing_key,
             &machine_encryption_key,

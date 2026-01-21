@@ -1,74 +1,61 @@
-use axum::{
-    async_trait,
-    extract::FromRequestParts,
-    http::request::Parts,
-};
-use base64::{Engine as _, engine::general_purpose};
-use serde::Deserialize;
+use axum::{async_trait, extract::FromRequestParts, http::request::Parts};
+use std::sync::Arc;
 use uuid::Uuid;
+use zero_auth_sessions::SessionManager;
 
-use crate::error::ApiError;
+use crate::{error::ApiError, state::AppState};
 
 /// JWT claims extracted from Authorization header
-#[derive(Debug, Clone, Deserialize)]
+///
+/// These claims are extracted from properly verified JWT tokens
+/// and can be used for authorization decisions in API handlers.
+#[derive(Debug, Clone)]
 pub struct JwtClaims {
-    pub sub: String,          // identity_id
+    pub sub: String,
     pub machine_id: String,
-    /// Namespace ID (for future multi-tenancy support)
-    #[allow(dead_code)]
-    pub namespace_id: String,
-    /// Whether MFA was verified (for future fine-grained auth)
-    #[allow(dead_code)]
     pub mfa_verified: bool,
-    /// Capabilities (for future capability-based access control)
-    #[allow(dead_code)]
-    pub capabilities: Vec<String>,
-    /// OAuth-style scopes (for future scope-based authorization)
-    #[allow(dead_code)]
-    pub scope: Vec<String>,
-    /// Revocation epoch for token invalidation (for future use)
-    #[allow(dead_code)]
-    pub revocation_epoch: u64,
-    /// Issued at timestamp (for future token validation)
-    #[allow(dead_code)]
-    pub iat: u64,
-    /// Expiration timestamp (for future token validation)
-    #[allow(dead_code)]
-    pub exp: u64,
 }
 
 impl JwtClaims {
+    /// Parse identity ID from token claims
     pub fn identity_id(&self) -> Result<Uuid, ApiError> {
         Uuid::parse_str(&self.sub)
             .map_err(|_| ApiError::InvalidRequest("Invalid identity_id in token".to_string()))
     }
 
+    /// Parse machine ID from token claims
     pub fn machine_id(&self) -> Result<Uuid, ApiError> {
         Uuid::parse_str(&self.machine_id)
             .map_err(|_| ApiError::InvalidRequest("Invalid machine_id in token".to_string()))
     }
-    
-    /// Parse namespace ID from token (for future use)
-    #[allow(dead_code)]
-    pub fn namespace_id(&self) -> Result<Uuid, ApiError> {
-        Uuid::parse_str(&self.namespace_id)
-            .map_err(|_| ApiError::InvalidRequest("Invalid namespace_id in token".to_string()))
+
+    /// Check if MFA is verified (for operations requiring MFA)
+    pub fn require_mfa(&self) -> Result<(), ApiError> {
+        if !self.mfa_verified {
+            return Err(ApiError::InvalidRequest(
+                "MFA verification required for this operation".to_string(),
+            ));
+        }
+        Ok(())
     }
 }
 
 /// Extractor for authenticated requests
+///
+/// This extractor properly verifies JWT signatures using the session service
+/// and validates revocation epochs to ensure tokens are still valid.
 pub struct AuthenticatedUser {
     pub claims: JwtClaims,
 }
 
 #[async_trait]
-impl<S> FromRequestParts<S> for AuthenticatedUser
-where
-    S: Send + Sync,
-{
+impl FromRequestParts<Arc<AppState>> for AuthenticatedUser {
     type Rejection = ApiError;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
         // Extract Authorization header
         let auth_header = parts
             .headers
@@ -81,27 +68,30 @@ where
             .strip_prefix("Bearer ")
             .ok_or(ApiError::Unauthorized)?;
 
-        // For now, we'll do basic JWT parsing without validation
-        // Full validation will be done via the session service
-        let claims = parse_jwt_claims(token)?;
+        // CRITICAL: Use session service to properly verify JWT signature
+        let introspection = state
+            .session_service
+            .introspect_token(token.to_string(), None)
+            .await
+            .map_err(|e| {
+                tracing::warn!("Token introspection failed: {}", e);
+                ApiError::Unauthorized
+            })?;
+
+        // Check if token is active
+        if !introspection.active {
+            tracing::warn!("Token is not active");
+            return Err(ApiError::Unauthorized);
+        }
+
+        // Convert introspection to claims format
+        // Note: Revocation epoch validation already performed in introspect_token
+        let claims = JwtClaims {
+            sub: introspection.identity_id.to_string(),
+            machine_id: introspection.machine_id.to_string(),
+            mfa_verified: introspection.mfa_verified,
+        };
 
         Ok(AuthenticatedUser { claims })
     }
-}
-
-/// Parse JWT claims without verification (verification done by session service)
-fn parse_jwt_claims(token: &str) -> Result<JwtClaims, ApiError> {
-    // Split JWT into parts
-    let parts: Vec<&str> = token.split('.').collect();
-    if parts.len() != 3 {
-        return Err(ApiError::Unauthorized);
-    }
-
-    // Decode payload (second part)
-    let payload = general_purpose::URL_SAFE_NO_PAD.decode(parts[1])
-        .map_err(|_| ApiError::Unauthorized)?;
-
-    // Parse claims
-    serde_json::from_slice(&payload)
-        .map_err(|_| ApiError::Unauthorized)
 }

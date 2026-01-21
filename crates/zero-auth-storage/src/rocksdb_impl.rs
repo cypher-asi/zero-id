@@ -38,8 +38,7 @@ impl RocksDbStorage {
     ///
     /// This is public for use in other crates' test modules.
     pub fn open_test() -> Result<Self> {
-        let temp_dir = tempfile::TempDir::new()
-            .map_err(StorageError::IoError)?;
+        let temp_dir = tempfile::TempDir::new().map_err(StorageError::IoError)?;
         Self::open(temp_dir.path())
     }
 
@@ -229,10 +228,7 @@ mod tests {
         };
 
         // Put
-        storage
-            .put("identities", &key, &data)
-            .await
-            .unwrap();
+        storage.put("identities", &key, &data).await.unwrap();
 
         // Get
         let result: Option<TestData> = storage.get("identities", &key).await.unwrap();
@@ -260,10 +256,7 @@ mod tests {
 
         assert!(!storage.exists("identities", &key).await.unwrap());
 
-        storage
-            .put("identities", &key, &data)
-            .await
-            .unwrap();
+        storage.put("identities", &key, &data).await.unwrap();
 
         assert!(storage.exists("identities", &key).await.unwrap());
     }
@@ -278,10 +271,7 @@ mod tests {
             value: 42,
         };
 
-        storage
-            .put("identities", &key, &data)
-            .await
-            .unwrap();
+        storage.put("identities", &key, &data).await.unwrap();
 
         assert!(storage.exists("identities", &key).await.unwrap());
 
@@ -350,9 +340,18 @@ mod tests {
         let key2 = (id1, Uuid::new_v4());
         let key3 = (id2, Uuid::new_v4());
 
-        storage.put("machine_keys_by_identity", &key1, &()).await.unwrap();
-        storage.put("machine_keys_by_identity", &key2, &()).await.unwrap();
-        storage.put("machine_keys_by_identity", &key3, &()).await.unwrap();
+        storage
+            .put("machine_keys_by_identity", &key1, &())
+            .await
+            .unwrap();
+        storage
+            .put("machine_keys_by_identity", &key2, &())
+            .await
+            .unwrap();
+        storage
+            .put("machine_keys_by_identity", &key3, &())
+            .await
+            .unwrap();
 
         let results: Vec<(Vec<u8>, ())> = storage
             .get_by_prefix("machine_keys_by_identity", &id1)

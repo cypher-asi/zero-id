@@ -10,12 +10,12 @@
 
 #![warn(clippy::all)]
 
-pub mod types;
 pub mod errors;
+mod service;
 pub mod traits;
-pub mod service;
+pub mod types;
 
-pub use types::*;
 pub use errors::{IdentityCoreError, Result};
-pub use traits::{IdentityCore, EventPublisher};
 pub use service::IdentityCoreService;
+pub use traits::{EventPublisher, IdentityCore};
+pub use types::*;

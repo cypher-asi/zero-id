@@ -5,10 +5,19 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
-use zero_auth_identity_core::{IdentityCore, MachineKey, CreateIdentityRequest as CoreCreateIdentityRequest, Approval, FreezeReason, RotationRequest, IdentityStatus};
 use zero_auth_crypto::MachineKeyCapabilities;
+use zero_auth_identity_core::{
+    Approval, CreateIdentityRequest as CoreCreateIdentityRequest, FreezeReason, IdentityCore,
+    IdentityStatus, MachineKey, RotationRequest,
+};
 
-use crate::{error::{ApiError, map_service_error}, extractors::AuthenticatedUser, state::AppState};
+use crate::{
+    error::{map_service_error, ApiError},
+    extractors::AuthenticatedUser,
+    state::AppState,
+};
+
+use super::helpers::{format_timestamp_rfc3339, parse_capabilities, parse_hex_32, parse_hex_64};
 
 // ============================================================================
 // Request/Response Types
@@ -17,16 +26,17 @@ use crate::{error::{ApiError, map_service_error}, extractors::AuthenticatedUser,
 #[derive(Debug, Deserialize)]
 pub struct CreateIdentityRequest {
     pub identity_id: Uuid,
-    pub central_public_key: String, // hex
-    pub authorization_signature: String, // hex
+    pub identity_signing_public_key: String, // hex
+    pub authorization_signature: String,     // hex
     pub machine_key: MachineKeyRequest,
     pub namespace_name: String,
+    pub created_at: u64, // Unix timestamp - must match the timestamp used to create the signature
 }
 
 #[derive(Debug, Deserialize)]
 pub struct MachineKeyRequest {
     pub machine_id: Uuid,
-    pub signing_public_key: String, // hex
+    pub signing_public_key: String,    // hex
     pub encryption_public_key: String, // hex
     pub capabilities: Vec<String>,
     pub device_name: String,
@@ -44,18 +54,16 @@ pub struct CreateIdentityResponse {
 #[derive(Debug, Serialize)]
 pub struct GetIdentityResponse {
     pub identity_id: Uuid,
-    pub central_public_key: String,
+    pub identity_signing_public_key: String,
     pub status: String,
     pub created_at: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct FreezeCeremonyRequest {
-    /// Machine IDs of approvers (for future multi-party approval)
-    #[allow(dead_code)]
+    /// Machine IDs of approvers for multi-party approval
     pub approver_machine_ids: Vec<Uuid>,
-    /// Approval signatures from approvers (for future multi-party approval)
-    #[allow(dead_code)]
+    /// Approval signatures from approvers for multi-party approval  
     pub approval_signatures: Vec<String>, // hex
     pub reason: String,
 }
@@ -68,17 +76,16 @@ pub struct UnfreezeCeremonyRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct RecoveryCeremonyRequest {
-    pub new_central_public_key: String, // hex
+    pub new_identity_signing_public_key: String, // hex
     pub approver_machine_ids: Vec<Uuid>,
     pub approval_signatures: Vec<String>, // hex
 }
 
 #[derive(Debug, Deserialize)]
 pub struct RotationCeremonyRequest {
-    pub new_central_public_key: String, // hex
-    /// Signature from current central key (for future use)
-    #[allow(dead_code)]
-    pub rotation_signature: String, // hex from current central key
+    pub new_identity_signing_public_key: String, // hex
+    /// Signature from current identity signing key proving authorization
+    pub rotation_signature: String, // hex from current identity signing key
     pub approver_machine_ids: Vec<Uuid>,
     pub approval_signatures: Vec<String>, // hex
 }
@@ -99,7 +106,7 @@ pub async fn create_identity(
     Json(req): Json<CreateIdentityRequest>,
 ) -> Result<Json<CreateIdentityResponse>, ApiError> {
     // Parse hex strings
-    let central_public_key = parse_hex_32(&req.central_public_key)?;
+    let identity_signing_public_key = parse_hex_32(&req.identity_signing_public_key)?;
     let authorization_signature = parse_hex_64(&req.authorization_signature)?;
     let signing_public_key = parse_hex_32(&req.machine_key.signing_public_key)?;
     let encryption_public_key = parse_hex_32(&req.machine_key.encryption_public_key)?;
@@ -116,7 +123,7 @@ pub async fn create_identity(
         encryption_public_key,
         capabilities,
         epoch: 0,
-        created_at: chrono::Utc::now().timestamp() as u64,
+        created_at: req.created_at, // Use client-provided timestamp
         expires_at: None,
         last_used_at: None,
         device_name: req.machine_key.device_name.clone(),
@@ -128,11 +135,11 @@ pub async fn create_identity(
     // Create identity request
     let create_request = CoreCreateIdentityRequest {
         identity_id: req.identity_id,
-        central_public_key,
+        identity_signing_public_key,
         machine_key,
         authorization_signature: authorization_signature.to_vec(),
         namespace_name: Some(req.namespace_name),
-        created_at: chrono::Utc::now().timestamp() as u64,
+        created_at: req.created_at, // Use client-provided timestamp for signature verification
     };
 
     // Create identity
@@ -149,9 +156,7 @@ pub async fn create_identity(
         identity_id: identity.identity_id,
         machine_id: req.machine_key.machine_id,
         namespace_id,
-        created_at: chrono::DateTime::from_timestamp(identity.created_at as i64, 0)
-            .unwrap()
-            .to_rfc3339(),
+        created_at: format_timestamp_rfc3339(identity.created_at)?,
     }))
 }
 
@@ -176,11 +181,9 @@ pub async fn get_identity(
 
     Ok(Json(GetIdentityResponse {
         identity_id: identity.identity_id,
-        central_public_key: hex::encode(identity.central_public_key),
+        identity_signing_public_key: hex::encode(identity.identity_signing_public_key),
         status: status_str.to_string(),
-        created_at: chrono::DateTime::from_timestamp(identity.created_at as i64, 0)
-            .unwrap()
-            .to_rfc3339(),
+        created_at: format_timestamp_rfc3339(identity.created_at)?,
     }))
 }
 
@@ -201,10 +204,45 @@ pub async fn freeze_identity(
         _ => FreezeReason::Administrative,
     };
 
-    // Execute freeze ceremony
+    // Parse approvals for freeze ceremony
+    let mut approvals = Vec::new();
+
+    // Check if multi-party approval is provided for high-risk freeze
+    if matches!(
+        freeze_reason,
+        FreezeReason::SecurityIncident | FreezeReason::SuspiciousActivity
+    ) {
+        // For high-risk freezes, require at least one approval
+        if req.approver_machine_ids.is_empty() || req.approval_signatures.is_empty() {
+            return Err(ApiError::InvalidRequest(
+                "Multi-party approval required for security-related freeze".to_string(),
+            ));
+        }
+
+        // Verify approval count matches
+        if req.approver_machine_ids.len() != req.approval_signatures.len() {
+            return Err(ApiError::InvalidRequest(
+                "Number of approvers must match number of signatures".to_string(),
+            ));
+        }
+
+        // Parse signatures into Approvals
+        for (i, sig_hex) in req.approval_signatures.iter().enumerate() {
+            let signature_bytes = hex::decode(sig_hex)
+                .map_err(|_| ApiError::InvalidRequest("Invalid hex encoding".to_string()))?;
+
+            approvals.push(Approval {
+                machine_id: req.approver_machine_ids[i],
+                signature: signature_bytes,
+                timestamp: chrono::Utc::now().timestamp() as u64,
+            });
+        }
+    }
+
+    // Execute freeze ceremony with cryptographic verification of approvals
     state
         .identity_service
-        .freeze_identity(identity_id, freeze_reason)
+        .freeze_identity(identity_id, freeze_reason, approvals)
         .await
         .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
 
@@ -227,7 +265,7 @@ pub async fn unfreeze_identity(
     for (i, sig_hex) in req.approval_signatures.iter().enumerate() {
         let signature_bytes = hex::decode(sig_hex)
             .map_err(|_| ApiError::InvalidRequest("Invalid hex encoding".to_string()))?;
-        
+
         approvals.push(Approval {
             machine_id: req.approver_machine_ids[i],
             signature: signature_bytes,
@@ -255,14 +293,14 @@ pub async fn recovery_ceremony(
     Json(req): Json<RecoveryCeremonyRequest>,
 ) -> Result<Json<CeremonyResponse>, ApiError> {
     let identity_id = auth.claims.identity_id()?;
-    let new_central_public_key = parse_hex_32(&req.new_central_public_key)?;
+    let new_identity_signing_public_key = parse_hex_32(&req.new_identity_signing_public_key)?;
 
     // Parse signatures into Approvals
     let mut approvals = Vec::new();
     for (i, sig_hex) in req.approval_signatures.iter().enumerate() {
         let signature_bytes = hex::decode(sig_hex)
             .map_err(|_| ApiError::InvalidRequest("Invalid hex encoding".to_string()))?;
-        
+
         approvals.push(Approval {
             machine_id: req.approver_machine_ids[i],
             signature: signature_bytes,
@@ -275,8 +313,8 @@ pub async fn recovery_ceremony(
         machine_id: Uuid::new_v4(),
         identity_id,
         namespace_id: identity_id,
-        signing_public_key: new_central_public_key,
-        encryption_public_key: new_central_public_key,
+        signing_public_key: new_identity_signing_public_key,
+        encryption_public_key: new_identity_signing_public_key,
         capabilities: MachineKeyCapabilities::FULL_DEVICE,
         epoch: 1,
         created_at: chrono::Utc::now().timestamp() as u64,
@@ -307,26 +345,35 @@ pub async fn rotation_ceremony(
     auth: AuthenticatedUser,
     Json(req): Json<RotationCeremonyRequest>,
 ) -> Result<Json<CeremonyResponse>, ApiError> {
-    let identity_id = auth.claims.identity_id()?;
-    let new_central_public_key = parse_hex_32(&req.new_central_public_key)?;
+    // Rotation is a high-risk operation - require MFA
+    auth.claims.require_mfa()?;
 
-    // Parse signatures into Approvals
-    let mut approvals = Vec::new();
-    for (i, sig_hex) in req.approval_signatures.iter().enumerate() {
-        let signature_bytes = hex::decode(sig_hex)
-            .map_err(|_| ApiError::InvalidRequest("Invalid hex encoding".to_string()))?;
-        
-        approvals.push(Approval {
-            machine_id: req.approver_machine_ids[i],
-            signature: signature_bytes,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        });
-    }
+    let identity_id = auth.claims.identity_id()?;
+    let new_identity_signing_public_key = parse_hex_32(&req.new_identity_signing_public_key)?;
+
+    // Parse rotation signature (signature from current identity signing key)
+    let rotation_signature_bytes = hex::decode(&req.rotation_signature)
+        .map_err(|_| ApiError::InvalidRequest("Invalid rotation signature encoding".to_string()))?;
+
+    // Get current identity to verify signature
+    let identity = state
+        .identity_service
+        .get_identity(identity_id)
+        .await
+        .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
+
+    verify_rotation_signature(
+        identity_id,
+        &identity.identity_signing_public_key,
+        &new_identity_signing_public_key,
+        &rotation_signature_bytes,
+    )?;
+    let approvals = parse_rotation_approvals(&req.approver_machine_ids, &req.approval_signatures)?;
 
     // Create rotation request
     let rotation_request = RotationRequest {
         identity_id,
-        new_central_public_key,
+        new_identity_signing_public_key,
         approvals,
         new_machines: Vec::new(), // TODO: Should come from request
     };
@@ -340,50 +387,56 @@ pub async fn rotation_ceremony(
 
     Ok(Json(CeremonyResponse {
         success: true,
-        message: "Central key rotated successfully".to_string(),
+        message: "Identity signing key rotated successfully".to_string(),
     }))
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-fn parse_hex_32(hex_str: &str) -> Result<[u8; 32], ApiError> {
-    let bytes = hex::decode(hex_str)
-        .map_err(|_| ApiError::InvalidRequest("Invalid hex encoding".to_string()))?;
-    if bytes.len() != 32 {
-        return Err(ApiError::InvalidRequest("Expected 32 bytes".to_string()));
+fn verify_rotation_signature(
+    identity_id: Uuid,
+    identity_signing_public_key: &[u8; 32],
+    new_identity_signing_public_key: &[u8; 32],
+    rotation_signature: &[u8],
+) -> Result<(), ApiError> {
+    if rotation_signature.len() != 64 {
+        return Err(ApiError::InvalidRequest(
+            "Rotation signature must be 64 bytes".to_string(),
+        ));
     }
-    let mut array = [0u8; 32];
-    array.copy_from_slice(&bytes);
-    Ok(array)
+
+    let mut message = Vec::with_capacity(6 + 16 + 32);
+    message.extend_from_slice(b"rotate");
+    message.extend_from_slice(identity_id.as_bytes());
+    message.extend_from_slice(new_identity_signing_public_key);
+
+    let mut signature_array = [0u8; 64];
+    signature_array.copy_from_slice(rotation_signature);
+
+    zero_auth_crypto::verify_signature(identity_signing_public_key, &message, &signature_array)
+        .map_err(|_| ApiError::InvalidSignature)
 }
 
-fn parse_hex_64(hex_str: &str) -> Result<[u8; 64], ApiError> {
-    let bytes = hex::decode(hex_str)
-        .map_err(|_| ApiError::InvalidRequest("Invalid hex encoding".to_string()))?;
-    if bytes.len() != 64 {
-        return Err(ApiError::InvalidRequest("Expected 64 bytes".to_string()));
+fn parse_rotation_approvals(
+    approver_machine_ids: &[Uuid],
+    approval_signatures: &[String],
+) -> Result<Vec<Approval>, ApiError> {
+    if approver_machine_ids.len() != approval_signatures.len() {
+        return Err(ApiError::InvalidRequest(
+            "Number of approvers must match number of signatures".to_string(),
+        ));
     }
-    let mut array = [0u8; 64];
-    array.copy_from_slice(&bytes);
-    Ok(array)
-}
 
-fn parse_capabilities(caps: &[String]) -> Result<MachineKeyCapabilities, ApiError> {
-    let mut result = MachineKeyCapabilities::empty();
-    for s in caps {
-        match s.as_str() {
-            "FULL_DEVICE" => result |= MachineKeyCapabilities::FULL_DEVICE,
-            "AUTHENTICATE" => result |= MachineKeyCapabilities::AUTHENTICATE,
-            "SIGN" => result |= MachineKeyCapabilities::SIGN,
-            "ENCRYPT" => result |= MachineKeyCapabilities::ENCRYPT,
-            "SVK_UNWRAP" => result |= MachineKeyCapabilities::SVK_UNWRAP,
-            "MLS_MESSAGING" => result |= MachineKeyCapabilities::MLS_MESSAGING,
-            "VAULT_OPERATIONS" => result |= MachineKeyCapabilities::VAULT_OPERATIONS,
-            "SERVICE_MACHINE" => result |= MachineKeyCapabilities::SERVICE_MACHINE,
-            _ => return Err(ApiError::InvalidRequest(format!("Invalid capability: {}", s))),
-        }
-    }
-    Ok(result)
+    approval_signatures
+        .iter()
+        .enumerate()
+        .map(|(i, sig_hex)| {
+            let signature_bytes = hex::decode(sig_hex)
+                .map_err(|_| ApiError::InvalidRequest("Invalid hex encoding".to_string()))?;
+
+            Ok(Approval {
+                machine_id: approver_machine_ids[i],
+                signature: signature_bytes,
+                timestamp: chrono::Utc::now().timestamp() as u64,
+            })
+        })
+        .collect()
 }

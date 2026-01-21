@@ -1,5 +1,8 @@
 pub mod auth;
+pub mod auth_wallet;
+pub mod credentials;
 pub mod health;
+pub mod helpers;
 pub mod identity;
 pub mod integrations;
 pub mod machines;

@@ -3,6 +3,7 @@
 use crate::types::*;
 use rand::Rng;
 use uuid::Uuid;
+use zero_auth_crypto::current_timestamp;
 
 /// Challenge expiry time in seconds (60 seconds)
 pub const CHALLENGE_EXPIRY_SECONDS: u64 = 60;
@@ -82,14 +83,6 @@ pub fn canonicalize_challenge(challenge: &Challenge) -> [u8; 130] {
 /// Check if challenge is expired
 pub fn is_challenge_expired(challenge: &Challenge) -> bool {
     current_timestamp() >= challenge.exp
-}
-
-/// Get current timestamp (Unix seconds)
-fn current_timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs()
 }
 
 #[cfg(test)]

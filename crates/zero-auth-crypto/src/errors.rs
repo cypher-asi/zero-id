@@ -11,7 +11,7 @@ pub enum CryptoError {
         /// Expected key size in bytes
         expected: usize,
         /// Actual key size in bytes
-        actual: usize
+        actual: usize,
     },
 
     /// Invalid nonce size
@@ -20,7 +20,7 @@ pub enum CryptoError {
         /// Expected nonce size in bytes
         expected: usize,
         /// Actual nonce size in bytes
-        actual: usize
+        actual: usize,
     },
 
     /// Invalid signature
@@ -78,6 +78,40 @@ pub enum CryptoError {
     /// Deserialization error
     #[error("Deserialization error: {0}")]
     DeserializationError(String),
+
+    /// Shamir split operation failed
+    #[error("Shamir split failed: {0}")]
+    ShamirSplitFailed(String),
+
+    /// Shamir combine operation failed
+    #[error("Shamir combine failed: {0}")]
+    ShamirCombineFailed(String),
+
+    /// Insufficient shards for reconstruction
+    #[error("Insufficient Neural Shards: need {required}, got {provided}")]
+    InsufficientShards {
+        /// Minimum required shards
+        required: usize,
+        /// Number of shards provided
+        provided: usize,
+    },
+
+    /// Too many shards provided
+    #[error("Too many Neural Shards: maximum {maximum}, got {provided}")]
+    TooManyShards {
+        /// Maximum allowed shards
+        maximum: usize,
+        /// Number of shards provided
+        provided: usize,
+    },
+
+    /// Duplicate shard index
+    #[error("Duplicate Neural Shard index: {0}")]
+    DuplicateShardIndex(u8),
+
+    /// Invalid shard format
+    #[error("Invalid Neural Shard format: {0}")]
+    InvalidShardFormat(String),
 }
 
 /// Result type for cryptographic operations

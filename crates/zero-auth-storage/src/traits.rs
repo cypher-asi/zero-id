@@ -54,11 +54,11 @@ pub trait Storage: Send + Sync {
 /// Batch interface for atomic operations
 ///
 /// Batches allow multiple operations to be performed atomically.
-/// 
+///
 /// Note: This trait works with pre-serialized bytes to maintain object safety.
 /// Use the `put_serialized` and `delete_serialized` helper methods, or serialize
 /// your keys/values before calling the raw methods.
-/// 
+///
 /// Batches only need to be `Send` (not `Sync`) since they are used within a single
 /// task context and not shared across threads.
 #[async_trait]
@@ -116,8 +116,7 @@ pub(crate) fn serialize_key<K: Serialize>(key: &K) -> Result<Vec<u8>> {
 
 /// Helper function to serialize a value
 pub(crate) fn serialize_value<V: Serialize>(value: &V) -> Result<Vec<u8>> {
-    bincode::serialize(value)
-        .map_err(|e| crate::errors::StorageError::Serialization(e.to_string()))
+    bincode::serialize(value).map_err(|e| crate::errors::StorageError::Serialization(e.to_string()))
 }
 
 /// Helper function to deserialize a value

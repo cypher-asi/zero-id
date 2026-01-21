@@ -7,9 +7,14 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 use zero_auth_identity_core::{IdentityCore, MachineKey};
-use zero_auth_crypto::MachineKeyCapabilities;
 
-use crate::{error::{ApiError, map_service_error}, extractors::AuthenticatedUser, state::AppState};
+use crate::{
+    error::{map_service_error, ApiError},
+    extractors::AuthenticatedUser,
+    state::AppState,
+};
+
+use super::helpers::{format_timestamp_rfc3339, parse_capabilities, parse_hex_32, parse_hex_64};
 
 // ============================================================================
 // Request/Response Types
@@ -19,7 +24,7 @@ use crate::{error::{ApiError, map_service_error}, extractors::AuthenticatedUser,
 pub struct EnrollMachineRequest {
     pub machine_id: Uuid,
     pub namespace_id: Option<Uuid>,
-    pub signing_public_key: String, // hex
+    pub signing_public_key: String,    // hex
     pub encryption_public_key: String, // hex
     pub capabilities: Vec<String>,
     pub device_name: String,
@@ -67,9 +72,11 @@ pub struct RevokeMachineRequest {
 pub async fn enroll_machine(
     State(state): State<Arc<AppState>>,
     auth: AuthenticatedUser,
+    ctx: crate::request_context::RequestContext,
     Json(req): Json<EnrollMachineRequest>,
 ) -> Result<Json<EnrollMachineResponse>, ApiError> {
     let identity_id = auth.claims.identity_id()?;
+    let mfa_verified = auth.claims.mfa_verified;
 
     // Parse hex strings
     let signing_public_key = parse_hex_32(&req.signing_public_key)?;
@@ -103,7 +110,14 @@ pub async fn enroll_machine(
     // Enroll machine
     let machine_id = state
         .identity_service
-        .enroll_machine_key(identity_id, machine_key, authorization_signature.to_vec())
+        .enroll_machine_key(
+            identity_id,
+            machine_key,
+            authorization_signature.to_vec(),
+            mfa_verified,
+            ctx.ip_address,
+            ctx.user_agent,
+        )
         .await
         .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
 
@@ -130,26 +144,26 @@ pub async fn list_machines(
         .await
         .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
 
-    let machine_infos = machines
+    let machine_infos: Result<Vec<_>, ApiError> = machines
         .into_iter()
-        .map(|m| MachineInfo {
-            machine_id: m.machine_id,
-            device_name: m.device_name,
-            device_platform: m.device_platform,
-            created_at: chrono::DateTime::from_timestamp(m.created_at as i64, 0)
-                .unwrap()
-                .to_rfc3339(),
-            last_used_at: m.last_used_at.map(|t| {
-                chrono::DateTime::from_timestamp(t as i64, 0)
-                    .unwrap()
-                    .to_rfc3339()
-            }),
-            revoked: m.revoked,
+        .map(|m| {
+            let created_at = format_timestamp_rfc3339(m.created_at)?;
+
+            let last_used_at = m.last_used_at.map(format_timestamp_rfc3339).transpose()?;
+
+            Ok(MachineInfo {
+                machine_id: m.machine_id,
+                device_name: m.device_name,
+                device_platform: m.device_platform,
+                created_at,
+                last_used_at,
+                revoked: m.revoked,
+            })
         })
         .collect();
 
     Ok(Json(ListMachinesResponse {
-        machines: machine_infos,
+        machines: machine_infos?,
     }))
 }
 
@@ -158,61 +172,26 @@ pub async fn revoke_machine(
     State(state): State<Arc<AppState>>,
     Path(machine_id): Path<Uuid>,
     auth: AuthenticatedUser,
+    ctx: crate::request_context::RequestContext,
     Json(req): Json<RevokeMachineRequest>,
 ) -> Result<StatusCode, ApiError> {
     let _identity_id = auth.claims.identity_id()?;
     let revoker_machine_id = auth.claims.machine_id()?;
+    let mfa_verified = auth.claims.mfa_verified;
 
     // Revoke machine
     state
         .identity_service
-        .revoke_machine_key(machine_id, revoker_machine_id, req.reason)
+        .revoke_machine_key(
+            machine_id,
+            revoker_machine_id,
+            req.reason,
+            mfa_verified,
+            ctx.ip_address,
+            ctx.user_agent,
+        )
         .await
         .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-fn parse_hex_32(hex_str: &str) -> Result<[u8; 32], ApiError> {
-    let bytes = hex::decode(hex_str)
-        .map_err(|_| ApiError::InvalidRequest("Invalid hex encoding".to_string()))?;
-    if bytes.len() != 32 {
-        return Err(ApiError::InvalidRequest("Expected 32 bytes".to_string()));
-    }
-    let mut array = [0u8; 32];
-    array.copy_from_slice(&bytes);
-    Ok(array)
-}
-
-fn parse_hex_64(hex_str: &str) -> Result<[u8; 64], ApiError> {
-    let bytes = hex::decode(hex_str)
-        .map_err(|_| ApiError::InvalidRequest("Invalid hex encoding".to_string()))?;
-    if bytes.len() != 64 {
-        return Err(ApiError::InvalidRequest("Expected 64 bytes".to_string()));
-    }
-    let mut array = [0u8; 64];
-    array.copy_from_slice(&bytes);
-    Ok(array)
-}
-
-fn parse_capabilities(caps: &[String]) -> Result<MachineKeyCapabilities, ApiError> {
-    let mut result = MachineKeyCapabilities::empty();
-    for s in caps {
-        match s.as_str() {
-            "FULL_DEVICE" => result |= MachineKeyCapabilities::FULL_DEVICE,
-            "AUTHENTICATE" => result |= MachineKeyCapabilities::AUTHENTICATE,
-            "SIGN" => result |= MachineKeyCapabilities::SIGN,
-            "ENCRYPT" => result |= MachineKeyCapabilities::ENCRYPT,
-            "SVK_UNWRAP" => result |= MachineKeyCapabilities::SVK_UNWRAP,
-            "MLS_MESSAGING" => result |= MachineKeyCapabilities::MLS_MESSAGING,
-            "VAULT_OPERATIONS" => result |= MachineKeyCapabilities::VAULT_OPERATIONS,
-            "SERVICE_MACHINE" => result |= MachineKeyCapabilities::SERVICE_MACHINE,
-            _ => return Err(ApiError::InvalidRequest(format!("Invalid capability: {}", s))),
-        }
-    }
-    Ok(result)
 }

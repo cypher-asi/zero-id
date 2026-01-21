@@ -23,7 +23,7 @@ pub struct PolicyContext {
     pub timestamp: u64,
 
     // Reputation
-    pub reputation_score: i32,         // -100 to +100
+    pub reputation_score: i32, // -100 to +100
     pub recent_failed_attempts: u32,
 }
 

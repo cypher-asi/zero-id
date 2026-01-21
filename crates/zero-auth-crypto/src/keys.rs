@@ -3,12 +3,12 @@
 //! This module handles generation of Neural Keys, Machine Keys, and other cryptographic keys.
 
 use crate::{constants::*, errors::*};
+use bitflags::bitflags;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519PrivateKey};
 use zeroize::{Zeroize, ZeroizeOnDrop};
-use bitflags::bitflags;
 
 /// Neural Key (root cryptographic seed)
 ///
@@ -75,18 +75,17 @@ impl NeuralKey {
 }
 
 /// Ed25519 signing key pair
+///
+/// # Security
+///
+/// The underlying `ed25519-dalek` library implements `Zeroize` for `SigningKey`,
+/// ensuring that private key material is securely erased from memory on drop.
 #[derive(Clone)]
 pub struct Ed25519KeyPair {
     /// Private signing key (32 bytes)
     private_key: SigningKey,
     /// Public verification key (32 bytes)
     public_key: VerifyingKey,
-}
-
-impl Drop for Ed25519KeyPair {
-    fn drop(&mut self) {
-        // Ed25519 keys from ed25519-dalek handle zeroization internally
-    }
 }
 
 impl Ed25519KeyPair {
@@ -124,18 +123,17 @@ impl Ed25519KeyPair {
 }
 
 /// X25519 encryption key pair
+///
+/// # Security
+///
+/// The underlying `x25519-dalek` library implements `Zeroize` for `StaticSecret`,
+/// ensuring that private key material is securely erased from memory on drop.
 #[derive(Clone)]
 pub struct X25519KeyPair {
     /// Private encryption key (32 bytes)
     private_key: X25519PrivateKey,
     /// Public encryption key (32 bytes)
     public_key: X25519PublicKey,
-}
-
-impl Drop for X25519KeyPair {
-    fn drop(&mut self) {
-        // X25519 keys from x25519-dalek handle zeroization internally
-    }
 }
 
 impl X25519KeyPair {
@@ -214,6 +212,40 @@ bitflags! {
         const LIMITED_DEVICE = Self::AUTHENTICATE.bits()
             | Self::SIGN.bits()
             | Self::MLS_MESSAGING.bits();
+
+        /// Service access capability (same as SERVICE_MACHINE for compatibility)
+        const SERVICE_ACCESS = Self::SERVICE_MACHINE.bits();
+    }
+}
+
+impl MachineKeyCapabilities {
+    /// Convert capabilities to a vector of string names
+    ///
+    /// This is useful for JWT claims and API responses where we need
+    /// human-readable capability names.
+    pub fn to_string_vec(&self) -> Vec<String> {
+        let mut capabilities = Vec::new();
+
+        if self.contains(Self::AUTHENTICATE) {
+            capabilities.push("AUTHENTICATE".to_string());
+        }
+        if self.contains(Self::SIGN) {
+            capabilities.push("SIGN".to_string());
+        }
+        if self.contains(Self::ENCRYPT) {
+            capabilities.push("ENCRYPT".to_string());
+        }
+        if self.contains(Self::SVK_UNWRAP) {
+            capabilities.push("SVK_UNWRAP".to_string());
+        }
+        if self.contains(Self::MLS_MESSAGING) {
+            capabilities.push("MLS_MESSAGING".to_string());
+        }
+        if self.contains(Self::VAULT_OPERATIONS) {
+            capabilities.push("VAULT_OPERATIONS".to_string());
+        }
+
+        capabilities
     }
 }
 
@@ -240,6 +272,11 @@ impl<'de> Deserialize<'de> for MachineKeyCapabilities {
 /// Machine Key pair (signing + encryption)
 ///
 /// As specified in cryptographic-constants.md § 5
+///
+/// # Security
+///
+/// Composed of `Ed25519KeyPair` and `X25519KeyPair`, both of which have their
+/// underlying libraries handle zeroization of private key material on drop.
 #[derive(Clone)]
 pub struct MachineKeyPair {
     /// Ed25519 signing key pair
@@ -248,12 +285,6 @@ pub struct MachineKeyPair {
     encryption_key: X25519KeyPair,
     /// Machine capabilities
     capabilities: MachineKeyCapabilities,
-}
-
-impl Drop for MachineKeyPair {
-    fn drop(&mut self) {
-        // Component keys handle zeroization internally
-    }
 }
 
 impl MachineKeyPair {
@@ -302,6 +333,23 @@ impl MachineKeyPair {
 }
 
 /// Generate a random nonce for encryption
+/// Generate a cryptographically random nonce for XChaCha20-Poly1305
+///
+/// # Security Notes
+///
+/// - XChaCha20 uses 192-bit (24-byte) nonces, providing a vast nonce space
+/// - Birthday bound for collision is at 2^96 operations (~7.9 × 10^28)
+/// - Random generation is safe for reasonable usage volumes
+/// - Each encrypted value stores its nonce, enabling collision detection
+///
+/// # Future Enhancement
+///
+/// For defense-in-depth, consider implementing:
+/// - Counter-based nonce generation for deterministic uniqueness
+/// - Database-backed nonce counter with atomic increment
+/// - Nonce collision detection before encryption
+///
+/// Current implementation is cryptographically sound for typical usage.
 pub fn generate_nonce() -> Result<[u8; NONCE_SIZE]> {
     let mut nonce = [0u8; NONCE_SIZE];
     rand::thread_rng()
@@ -386,7 +434,10 @@ mod tests {
 
         assert_eq!(machine_key.signing_public_key().len(), PUBLIC_KEY_SIZE);
         assert_eq!(machine_key.encryption_public_key().len(), PUBLIC_KEY_SIZE);
-        assert_eq!(machine_key.capabilities(), MachineKeyCapabilities::FULL_DEVICE);
+        assert_eq!(
+            machine_key.capabilities(),
+            MachineKeyCapabilities::FULL_DEVICE
+        );
     }
 
     #[test]

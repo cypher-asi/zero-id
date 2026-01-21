@@ -1,0 +1,51 @@
+[package]
+name = "zero-auth-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Zero-auth crypto library (for client-side key generation)
+zero-auth-crypto = { path = "../zero-auth-crypto" }
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json"] }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# UUID generation
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Error handling
+anyhow = "1.0"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Hex encoding/decoding
+hex = "0.4"
+
+# Base64 encoding/decoding
+base64 = "0.22"
+
+# CLI
+clap = { version = "4.4", features = ["derive"] }
+
+# Pretty printing
+colored = "2.1"
+
+# Secure memory handling
+zeroize = { version = "1.7", features = ["derive"] }
+
+# Password input
+rpassword = "7.3"
+
+# Argon2id for key derivation
+argon2 = "0.5"
+
+# Random number generation
+rand = "0.8"

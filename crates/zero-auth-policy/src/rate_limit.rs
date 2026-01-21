@@ -9,12 +9,15 @@ pub struct RateLimiter {
     limits: Arc<Mutex<HashMap<String, LimitState>>>,
 }
 
+const MAX_ENTRIES: usize = 10_000;
+
 #[derive(Debug, Clone)]
 struct LimitState {
     attempts: u32,
     window_start: u64,
     window_seconds: u64,
     max_attempts: u32,
+    last_seen: u64,
 }
 
 impl RateLimiter {
@@ -37,55 +40,75 @@ impl RateLimiter {
     ) -> Option<RateLimit> {
         let mut limits = self.limits.lock().unwrap();
 
-        let state = limits.entry(key.to_string()).or_insert(LimitState {
-            attempts: 0,
-            window_start: current_time,
-            window_seconds,
-            max_attempts,
-        });
+        let rate_limit = {
+            let state = limits.entry(key.to_string()).or_insert(LimitState {
+                attempts: 0,
+                window_start: current_time,
+                window_seconds,
+                max_attempts,
+                last_seen: current_time,
+            });
 
-        // Check if window has expired
-        if current_time >= state.window_start + state.window_seconds {
-            // Reset window
-            state.window_start = current_time;
-            state.attempts = 0;
-        }
+            // Check if window has expired
+            if current_time >= state.window_start + state.window_seconds {
+                // Reset window
+                state.window_start = current_time;
+                state.attempts = 0;
+            }
 
-        // Check if rate limited
-        if state.attempts >= state.max_attempts {
-            return None;
-        }
+            // Check if rate limited
+            if state.attempts >= state.max_attempts {
+                None
+            } else {
+                // Increment attempts
+                state.attempts += 1;
+                state.last_seen = current_time;
 
-        // Increment attempts
-        state.attempts += 1;
+                Some(RateLimit {
+                    window_seconds: state.window_seconds,
+                    max_attempts: state.max_attempts,
+                    remaining: state.max_attempts - state.attempts,
+                    reset_at: state.window_start + state.window_seconds,
+                })
+            }
+        };
 
-        Some(RateLimit {
-            window_seconds: state.window_seconds,
-            max_attempts: state.max_attempts,
-            remaining: state.max_attempts - state.attempts,
-            reset_at: state.window_start + state.window_seconds,
-        })
+        cleanup_limits(&mut limits, current_time);
+
+        rate_limit
     }
 
     /// Record a failed attempt
-    pub fn record_failure(&self, key: &str, window_seconds: u64, max_attempts: u32, current_time: u64) {
+    pub fn record_failure(
+        &self,
+        key: &str,
+        window_seconds: u64,
+        max_attempts: u32,
+        current_time: u64,
+    ) {
         let mut limits = self.limits.lock().unwrap();
 
-        let state = limits.entry(key.to_string()).or_insert(LimitState {
-            attempts: 0,
-            window_start: current_time,
-            window_seconds,
-            max_attempts,
-        });
+        {
+            let state = limits.entry(key.to_string()).or_insert(LimitState {
+                attempts: 0,
+                window_start: current_time,
+                window_seconds,
+                max_attempts,
+                last_seen: current_time,
+            });
 
-        // Check if window has expired
-        if current_time >= state.window_start + state.window_seconds {
-            // Reset window
-            state.window_start = current_time;
-            state.attempts = 0;
+            // Check if window has expired
+            if current_time >= state.window_start + state.window_seconds {
+                // Reset window
+                state.window_start = current_time;
+                state.attempts = 0;
+            }
+
+            state.attempts += 1;
+            state.last_seen = current_time;
         }
 
-        state.attempts += 1;
+        cleanup_limits(&mut limits, current_time);
     }
 
     /// Reset rate limit for a key
@@ -99,6 +122,36 @@ impl RateLimiter {
     pub fn clear(&self) {
         let mut limits = self.limits.lock().unwrap();
         limits.clear();
+    }
+}
+
+fn cleanup_limits(limits: &mut HashMap<String, LimitState>, current_time: u64) {
+    if limits.len() <= MAX_ENTRIES {
+        return;
+    }
+
+    remove_expired(limits, current_time);
+
+    if limits.len() > MAX_ENTRIES {
+        evict_oldest(limits);
+    }
+}
+
+fn remove_expired(limits: &mut HashMap<String, LimitState>, current_time: u64) {
+    limits.retain(|_, state| current_time < state.window_start + state.window_seconds);
+}
+
+fn evict_oldest(limits: &mut HashMap<String, LimitState>) {
+    let mut entries: Vec<_> = limits
+        .iter()
+        .map(|(key, state)| (key.clone(), state.last_seen))
+        .collect();
+
+    entries.sort_by_key(|(_, last_seen)| *last_seen);
+    let remove_count = limits.len().saturating_sub(MAX_ENTRIES);
+
+    for (key, _) in entries.into_iter().take(remove_count) {
+        limits.remove(&key);
     }
 }
 

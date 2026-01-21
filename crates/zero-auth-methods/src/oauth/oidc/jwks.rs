@@ -8,14 +8,7 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
-/// Get current timestamp
-fn current_timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-}
+use zero_auth_crypto::current_timestamp;
 
 /// Fetch JWKS from provider
 pub async fn fetch_jwks(jwks_uri: &str) -> Result<JwksKeySet> {
@@ -40,7 +33,7 @@ pub async fn fetch_jwks_cached(
     cache: &Arc<RwLock<HashMap<OAuthProvider, JwksCacheEntry>>>,
 ) -> Result<JwksKeySet> {
     let current_time = current_timestamp();
-    
+
     // Check cache first (read lock)
     {
         let cache_read = cache.read().await;
@@ -50,21 +43,24 @@ pub async fn fetch_jwks_cached(
             }
         }
     }
-    
+
     // Cache miss or expired - fetch fresh JWKS
     let oidc_config = discover_oidc_config(provider).await?;
     let jwks = fetch_jwks(&oidc_config.jwks_uri).await?;
-    
+
     // Update cache (write lock)
     {
         let mut cache_write = cache.write().await;
-        cache_write.insert(provider, JwksCacheEntry {
-            jwks: jwks.clone(),
-            fetched_at: current_time,
-            ttl: 3600,  // 1 hour
-        });
+        cache_write.insert(
+            provider,
+            JwksCacheEntry {
+                jwks: jwks.clone(),
+                fetched_at: current_time,
+                ttl: 3600, // 1 hour
+            },
+        );
     }
-    
+
     Ok(jwks)
 }
 
@@ -78,21 +74,24 @@ pub async fn fetch_jwks_fresh(
         let mut cache_write = cache.write().await;
         cache_write.remove(&provider);
     }
-    
+
     // Fetch fresh
     let oidc_config = discover_oidc_config(provider).await?;
     let jwks = fetch_jwks(&oidc_config.jwks_uri).await?;
-    
+
     // Update cache with fresh JWKS
     {
         let mut cache_write = cache.write().await;
-        cache_write.insert(provider, JwksCacheEntry {
-            jwks: jwks.clone(),
-            fetched_at: current_timestamp(),
-            ttl: 3600,
-        });
+        cache_write.insert(
+            provider,
+            JwksCacheEntry {
+                jwks: jwks.clone(),
+                fetched_at: current_timestamp(),
+                ttl: 3600,
+            },
+        );
     }
-    
+
     Ok(jwks)
 }
 
@@ -102,12 +101,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwks_caching() {
-        let cache: Arc<RwLock<HashMap<OAuthProvider, JwksCacheEntry>>> = 
+        let cache: Arc<RwLock<HashMap<OAuthProvider, JwksCacheEntry>>> =
             Arc::new(RwLock::new(HashMap::new()));
 
         // First fetch - should populate cache (network call)
         let result1 = fetch_jwks_cached(OAuthProvider::Google, &cache).await;
-        
+
         // Check if fetch succeeded or failed due to network
         match result1 {
             Ok(jwks1) => {
@@ -135,30 +134,33 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwks_cache_expiry() {
-        let cache: Arc<RwLock<HashMap<OAuthProvider, JwksCacheEntry>>> = 
+        let cache: Arc<RwLock<HashMap<OAuthProvider, JwksCacheEntry>>> =
             Arc::new(RwLock::new(HashMap::new()));
 
         // Manually insert expired cache entry
         {
             let mut cache_write = cache.write().await;
-            cache_write.insert(OAuthProvider::Google, JwksCacheEntry {
-                jwks: JwksKeySet { keys: vec![] },
-                fetched_at: 1000,
-                ttl: 3600,
-            });
+            cache_write.insert(
+                OAuthProvider::Google,
+                JwksCacheEntry {
+                    jwks: JwksKeySet { keys: vec![] },
+                    fetched_at: 1000,
+                    ttl: 3600,
+                },
+            );
         }
 
         // Attempt to fetch with expired cache
         // Should try to fetch fresh (may fail due to network in tests)
         let result = fetch_jwks_cached(OAuthProvider::Google, &cache).await;
-        
+
         match result {
             Ok(jwks) => {
                 // Cache should be updated with fresh data
                 let cache_read = cache.read().await;
                 let entry = cache_read.get(&OAuthProvider::Google).unwrap();
                 // Fresh fetch should have keys
-                assert!(jwks.keys.len() > 0 || entry.fetched_at > 1000);
+                assert!(!jwks.keys.is_empty() || entry.fetched_at > 1000);
             }
             Err(_) => {
                 // Network error acceptable in tests
@@ -169,7 +171,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwks_force_refresh() {
-        let cache: Arc<RwLock<HashMap<OAuthProvider, JwksCacheEntry>>> = 
+        let cache: Arc<RwLock<HashMap<OAuthProvider, JwksCacheEntry>>> =
             Arc::new(RwLock::new(HashMap::new()));
 
         // First populate cache
@@ -177,7 +179,7 @@ mod tests {
 
         // Force refresh should invalidate cache and fetch fresh
         let result = fetch_jwks_fresh(OAuthProvider::Google, &cache).await;
-        
+
         match result {
             Ok(jwks) => {
                 // Cache should have been updated

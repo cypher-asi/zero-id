@@ -16,16 +16,12 @@ serde = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 
 # UUID
 uuid = { workspace = true }
 
 # Tracing
 tracing = { workspace = true }
-
-# Time
-chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

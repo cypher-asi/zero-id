@@ -1,14 +1,16 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-};
+use axum::{extract::State, http::StatusCode, response::Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 use zero_auth_sessions::SessionManager;
 
-use crate::{error::{ApiError, map_service_error}, extractors::AuthenticatedUser, state::AppState};
+use crate::{
+    error::{map_service_error, ApiError},
+    extractors::AuthenticatedUser,
+    state::AppState,
+};
+
+use super::helpers::format_timestamp_rfc3339;
 
 // ============================================================================
 // Request/Response Types
@@ -36,8 +38,7 @@ pub struct RevokeSessionRequest {
 #[derive(Debug, Deserialize)]
 pub struct IntrospectTokenRequest {
     pub token: String,
-    /// Operation type for fine-grained authorization (for future use)
-    #[allow(dead_code)]
+    /// Operation type for fine-grained authorization
     pub operation_type: Option<String>,
 }
 
@@ -91,9 +92,7 @@ pub async fn refresh_session(
     Ok(Json(RefreshSessionResponse {
         access_token: result.access_token,
         refresh_token: result.refresh_token,
-        expires_at: chrono::DateTime::from_timestamp(expires_at_ts as i64, 0)
-            .unwrap()
-            .to_rfc3339(),
+        expires_at: format_timestamp_rfc3339(expires_at_ts)?,
     }))
 }
 
@@ -103,7 +102,19 @@ pub async fn revoke_session(
     auth: AuthenticatedUser,
     Json(req): Json<RevokeSessionRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let _identity_id = auth.claims.identity_id()?;
+    let identity_id = auth.claims.identity_id()?;
+
+    let session = state
+        .session_service
+        .get_session(req.session_id)
+        .await
+        .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
+
+    if session.identity_id != identity_id {
+        return Err(ApiError::Forbidden(
+            "Session does not belong to authenticated identity".to_string(),
+        ));
+    }
 
     // Revoke the session
     state
@@ -120,6 +131,9 @@ pub async fn revoke_all_sessions(
     State(state): State<Arc<AppState>>,
     auth: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
+    // Revoking all sessions is a high-risk operation - require MFA
+    auth.claims.require_mfa()?;
+
     let identity_id = auth.claims.identity_id()?;
 
     // Revoke all sessions for the identity
@@ -135,31 +149,70 @@ pub async fn revoke_all_sessions(
 /// POST /v1/auth/introspect
 pub async fn introspect_token(
     State(state): State<Arc<AppState>>,
+    auth: AuthenticatedUser,
     Json(req): Json<IntrospectTokenRequest>,
 ) -> Result<Json<IntrospectTokenResponse>, ApiError> {
-    // Introspect the token
+    let requester_identity_id = auth.claims.identity_id()?;
+
+    // Introspect the token using session service
     match state
         .session_service
-        .introspect_token(req.token, None)
+        .introspect_token(req.token.clone(), None)
         .await
     {
         Ok(result) => {
-            // Parse custom claims from sub, aud, etc.
-            let identity_id = result.sub.and_then(|s| Uuid::parse_str(&s).ok());
-            let scope_vec = result.scope.map(|s| vec![s]).unwrap_or_default();
-            
+            if result.active && result.identity_id != requester_identity_id {
+                return Err(ApiError::Forbidden(
+                    "Token does not belong to authenticated identity".to_string(),
+                ));
+            }
+
+            // If operation_type is provided, perform additional authorization checks
+            if let Some(op_type) = req.operation_type {
+                // Check if operation requires specific capabilities
+                let required_capability = match op_type.as_str() {
+                    "vault:read" => Some("VAULT_OPERATIONS"),
+                    "vault:write" => Some("VAULT_OPERATIONS"),
+                    "sign" => Some("SIGN"),
+                    "encrypt" => Some("ENCRYPT"),
+                    "svk_unwrap" => Some("SVK_UNWRAP"),
+                    "mls_messaging" => Some("MLS_MESSAGING"),
+                    _ => None,
+                };
+
+                if let Some(cap) = required_capability {
+                    let has_capability = result.capabilities.iter().any(|c| c == cap);
+
+                    if !has_capability {
+                        // Token is active but doesn't have required capability
+                        return Ok(Json(IntrospectTokenResponse {
+                            active: false, // Set to false since insufficient privileges
+                            identity_id: Some(result.identity_id),
+                            machine_id: Some(result.machine_id),
+                            namespace_id: Some(result.namespace_id),
+                            mfa_verified: Some(result.mfa_verified),
+                            capabilities: Some(result.capabilities.clone()),
+                            scope: Some(result.scopes.clone()),
+                            revocation_epoch: Some(result.revocation_epoch),
+                            exp: Some(result.expires_at),
+                        }));
+                    }
+                }
+            }
+
+            // Return full introspection result
             Ok(Json(IntrospectTokenResponse {
                 active: result.active,
-                identity_id,
-                machine_id: None, // Not in standard introspection
-                namespace_id: None, // Not in standard introspection
-                mfa_verified: None, // Not in standard introspection
-                capabilities: None, // Not in standard introspection
-                scope: Some(scope_vec),
-                revocation_epoch: None, // Not in standard introspection
-                exp: result.exp,
+                identity_id: Some(result.identity_id),
+                machine_id: Some(result.machine_id),
+                namespace_id: Some(result.namespace_id),
+                mfa_verified: Some(result.mfa_verified),
+                capabilities: Some(result.capabilities),
+                scope: Some(result.scopes),
+                revocation_epoch: Some(result.revocation_epoch),
+                exp: Some(result.expires_at),
             }))
-        },
+        }
         Err(_) => {
             // Token is invalid or expired
             Ok(Json(IntrospectTokenResponse {

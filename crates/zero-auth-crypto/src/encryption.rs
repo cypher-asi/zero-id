@@ -104,44 +104,59 @@ pub fn decrypt_mfa_secret(
     decrypt(mfa_kek, ciphertext, nonce, &aad)
 }
 
-/// Encrypt recovery share for backup
+/// Encrypt JWT signing key private key
 ///
-/// As specified in cryptographic-constants.md § 3.5
-///
-/// Uses backup KEK with AAD including identity_id and share_index
-pub fn encrypt_recovery_share(
-    backup_kek: &[u8; 32],
-    share: &[u8],
+/// Uses service master key to derive encryption key, with AAD including key_id and epoch
+pub fn encrypt_jwt_signing_key(
+    service_master_key: &[u8; 32],
+    private_key: &[u8; 32],
     nonce: &[u8; NONCE_SIZE],
-    identity_id: &uuid::Uuid,
-    share_index: u8,
+    key_id: &[u8; 16],
+    epoch: u64,
 ) -> Result<Vec<u8>> {
-    // Build AAD: "cypher:share-backup:v1" || identity_id || share_index
-    let mut aad = Vec::with_capacity(DOMAIN_SHARE_BACKUP_AAD.len() + 16 + 1);
-    aad.extend_from_slice(DOMAIN_SHARE_BACKUP_AAD.as_bytes());
-    aad.extend_from_slice(identity_id.as_bytes());
-    aad.push(share_index);
+    // Derive encryption key from service master key
+    // Domain: "cypher:auth:jwt-key-encryption:v1"
+    // Note: Using big-endian (network byte order) for all binary protocol data
+    let mut ikm = Vec::with_capacity(32 + 16 + 8);
+    ikm.extend_from_slice(service_master_key);
+    ikm.extend_from_slice(key_id);
+    ikm.extend_from_slice(&epoch.to_be_bytes());
 
-    encrypt(backup_kek, share, nonce, &aad)
+    let encryption_key = crate::hkdf_derive_32(&ikm, b"cypher:auth:jwt-key-encryption:v1")?;
+
+    // Build AAD: "cypher:auth:jwt-key:v1" || key_id || epoch
+    let mut aad = Vec::with_capacity(25 + 16 + 8);
+    aad.extend_from_slice(b"cypher:auth:jwt-key:v1");
+    aad.extend_from_slice(key_id);
+    aad.extend_from_slice(&epoch.to_be_bytes());
+
+    encrypt(&encryption_key, private_key, nonce, &aad)
 }
 
-/// Decrypt recovery share from backup
-///
-/// As specified in cryptographic-constants.md § 3.5
-pub fn decrypt_recovery_share(
-    backup_kek: &[u8; 32],
+/// Decrypt JWT signing key private key
+pub fn decrypt_jwt_signing_key(
+    service_master_key: &[u8; 32],
     ciphertext: &[u8],
     nonce: &[u8; NONCE_SIZE],
-    identity_id: &uuid::Uuid,
-    share_index: u8,
+    key_id: &[u8; 16],
+    epoch: u64,
 ) -> Result<Vec<u8>> {
-    // Build AAD: "cypher:share-backup:v1" || identity_id || share_index
-    let mut aad = Vec::with_capacity(DOMAIN_SHARE_BACKUP_AAD.len() + 16 + 1);
-    aad.extend_from_slice(DOMAIN_SHARE_BACKUP_AAD.as_bytes());
-    aad.extend_from_slice(identity_id.as_bytes());
-    aad.push(share_index);
+    // Derive encryption key from service master key (same as encryption)
+    // Note: Using big-endian (network byte order) for all binary protocol data
+    let mut ikm = Vec::with_capacity(32 + 16 + 8);
+    ikm.extend_from_slice(service_master_key);
+    ikm.extend_from_slice(key_id);
+    ikm.extend_from_slice(&epoch.to_be_bytes());
 
-    decrypt(backup_kek, ciphertext, nonce, &aad)
+    let encryption_key = crate::hkdf_derive_32(&ikm, b"cypher:auth:jwt-key-encryption:v1")?;
+
+    // Build AAD: "cypher:auth:jwt-key:v1" || key_id || epoch
+    let mut aad = Vec::with_capacity(25 + 16 + 8);
+    aad.extend_from_slice(b"cypher:auth:jwt-key:v1");
+    aad.extend_from_slice(key_id);
+    aad.extend_from_slice(&epoch.to_be_bytes());
+
+    decrypt(&encryption_key, ciphertext, nonce, &aad)
 }
 
 #[cfg(test)]
@@ -225,27 +240,9 @@ mod tests {
         let identity_id = uuid::Uuid::new_v4();
 
         let ciphertext = encrypt_mfa_secret(&mfa_kek, totp_secret, &nonce, &identity_id).unwrap();
-        let decrypted =
-            decrypt_mfa_secret(&mfa_kek, &ciphertext, &nonce, &identity_id).unwrap();
+        let decrypted = decrypt_mfa_secret(&mfa_kek, &ciphertext, &nonce, &identity_id).unwrap();
 
         assert_eq!(totp_secret, decrypted.as_slice());
-    }
-
-    #[test]
-    fn test_encrypt_recovery_share() {
-        let backup_kek = [2u8; 32];
-        let share = b"recovery share bytes";
-        let nonce = generate_nonce().unwrap();
-        let identity_id = uuid::Uuid::new_v4();
-        let share_index = 1;
-
-        let ciphertext =
-            encrypt_recovery_share(&backup_kek, share, &nonce, &identity_id, share_index).unwrap();
-        let decrypted =
-            decrypt_recovery_share(&backup_kek, &ciphertext, &nonce, &identity_id, share_index)
-                .unwrap();
-
-        assert_eq!(share, decrypted.as_slice());
     }
 
     #[test]
@@ -258,6 +255,50 @@ mod tests {
 
         let ciphertext = encrypt_mfa_secret(&mfa_kek, totp_secret, &nonce, &identity_id).unwrap();
         let result = decrypt_mfa_secret(&mfa_kek, &ciphertext, &nonce, &wrong_identity_id);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_encrypt_jwt_signing_key() {
+        let service_master_key = [3u8; 32];
+        let private_key = [4u8; 32];
+        let nonce = generate_nonce().unwrap();
+        let key_id = [5u8; 16];
+        let epoch = 1;
+
+        let ciphertext =
+            encrypt_jwt_signing_key(&service_master_key, &private_key, &nonce, &key_id, epoch)
+                .unwrap();
+        let decrypted =
+            decrypt_jwt_signing_key(&service_master_key, &ciphertext, &nonce, &key_id, epoch)
+                .unwrap();
+
+        assert_eq!(private_key.as_slice(), decrypted.as_slice());
+
+        // Verify ciphertext is larger due to auth tag
+        assert_eq!(ciphertext.len(), private_key.len() + TAG_SIZE);
+    }
+
+    #[test]
+    fn test_jwt_signing_key_wrong_epoch_fails() {
+        let service_master_key = [3u8; 32];
+        let private_key = [4u8; 32];
+        let nonce = generate_nonce().unwrap();
+        let key_id = [5u8; 16];
+        let epoch = 1;
+        let wrong_epoch = 2;
+
+        let ciphertext =
+            encrypt_jwt_signing_key(&service_master_key, &private_key, &nonce, &key_id, epoch)
+                .unwrap();
+        let result = decrypt_jwt_signing_key(
+            &service_master_key,
+            &ciphertext,
+            &nonce,
+            &key_id,
+            wrong_epoch,
+        );
 
         assert!(result.is_err());
     }

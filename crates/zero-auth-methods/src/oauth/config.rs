@@ -29,7 +29,11 @@ impl OAuthConfig {
             token_url: "https://oauth2.googleapis.com/token".to_string(),
             user_info_url: "https://www.googleapis.com/oauth2/v2/userinfo".to_string(),
             redirect_uri,
-            scopes: vec!["openid".to_string(), "email".to_string(), "profile".to_string()],
+            scopes: vec![
+                "openid".to_string(),
+                "email".to_string(),
+                "profile".to_string(),
+            ],
         }
     }
 

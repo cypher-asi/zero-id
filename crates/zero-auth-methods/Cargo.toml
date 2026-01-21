@@ -18,19 +18,13 @@ tokio = { workspace = true }
 async-trait = { workspace = true }
 
 # Serialization
-bincode = { workspace = true }
 serde = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 
 # UUID
 uuid = { workspace = true }
-
-# Password hashing
-argon2 = { workspace = true }
-password-hash = { workspace = true }
 
 # Zeroization
 zeroize = { workspace = true }
@@ -58,7 +52,6 @@ url = "2.5"
 
 # JWT validation for OIDC
 jsonwebtoken = "9.2"
-base64 = "0.21"
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -9,10 +9,10 @@
 
 pub mod column_families;
 pub mod errors;
-pub mod traits;
 pub mod rocksdb_impl;
+pub mod traits;
 
 pub use column_families::*;
-pub use errors::{StorageError, Result};
-pub use traits::{Storage, Batch};
+pub use errors::{Result, StorageError};
 pub use rocksdb_impl::RocksDbStorage;
+pub use traits::{Batch, Storage};

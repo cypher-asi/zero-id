@@ -16,12 +16,14 @@ use sha3::{Digest, Keccak256};
 /// Ethereum address in lowercase with 0x prefix
 pub fn recover_address(message_hash: &[u8; 32], signature: &[u8; 65]) -> Result<String> {
     // Extract recovery ID (v parameter)
-    let recovery_id = RecoveryId::try_from(signature[64] % 27)
-        .map_err(|e| AuthMethodsError::WalletSignatureInvalid(format!("Invalid recovery ID: {}", e)))?;
+    let recovery_id = RecoveryId::try_from(signature[64] % 27).map_err(|e| {
+        AuthMethodsError::WalletSignatureInvalid(format!("Invalid recovery ID: {}", e))
+    })?;
 
     // Extract signature (r, s parameters)
-    let sig = Signature::try_from(&signature[..64])
-        .map_err(|e| AuthMethodsError::WalletSignatureInvalid(format!("Invalid signature: {}", e)))?;
+    let sig = Signature::try_from(&signature[..64]).map_err(|e| {
+        AuthMethodsError::WalletSignatureInvalid(format!("Invalid signature: {}", e))
+    })?;
 
     // Recover public key from signature
     let verifying_key = VerifyingKey::recover_from_prehash(message_hash, &sig, recovery_id)
@@ -101,8 +103,9 @@ mod tests {
         let hash = keccak256(data);
 
         // Known keccak256 hash of "hello world"
-        let expected = hex::decode("47173285a8d7341e5e972fc677286384f802f8ef42a5ec5f03bbfa254cb01fad")
-            .unwrap();
+        let expected =
+            hex::decode("47173285a8d7341e5e972fc677286384f802f8ef42a5ec5f03bbfa254cb01fad")
+                .unwrap();
 
         assert_eq!(hash.as_slice(), expected.as_slice());
     }

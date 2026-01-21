@@ -13,11 +13,7 @@ pub fn generate_oidc_nonce() -> String {
 }
 
 /// Build authorization URL with nonce for OIDC
-pub fn build_auth_url_with_nonce(
-    config: &OAuthConfig,
-    state: &str,
-    nonce: &str,
-) -> Result<String> {
+pub fn build_auth_url_with_nonce(config: &OAuthConfig, state: &str, nonce: &str) -> Result<String> {
     let mut url = Url::parse(&config.auth_url)
         .map_err(|e| AuthMethodsError::OAuthConfigInvalid(format!("Invalid auth URL: {}", e)))?;
 

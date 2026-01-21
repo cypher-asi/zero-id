@@ -26,12 +26,7 @@ pub fn sign_webhook(event: &RevocationEvent, webhook_secret: &[u8; 32]) -> Resul
         .map_err(|e: serde_json::Error| Error::Serialization(e.to_string()))?;
 
     // Build signing payload: event_id.timestamp.json
-    let payload = format!(
-        "{}.{}.{}",
-        event.event_id,
-        event.timestamp,
-        json_payload
-    );
+    let payload = format!("{}.{}.{}", event.event_id, event.timestamp, json_payload);
 
     // Compute HMAC-SHA256
     let mut mac = HmacSha256::new_from_slice(webhook_secret)
@@ -194,18 +189,22 @@ mod tests {
         let mut tampered_event = event.clone();
         tampered_event.reason = "Tampered reason".to_string();
 
-        assert!(!verify_webhook_signature(&tampered_event, &signature, &secret));
+        assert!(!verify_webhook_signature(
+            &tampered_event,
+            &signature,
+            &secret
+        ));
     }
 
     #[test]
     fn test_retry_delay_calculation() {
-        assert_eq!(calculate_retry_delay(1), 60);      // 1 min
-        assert_eq!(calculate_retry_delay(2), 120);     // 2 min
-        assert_eq!(calculate_retry_delay(3), 240);     // 4 min
-        assert_eq!(calculate_retry_delay(4), 480);     // 8 min
-        assert_eq!(calculate_retry_delay(5), 960);     // 16 min
-        assert_eq!(calculate_retry_delay(6), 1920);    // 32 min
-        assert_eq!(calculate_retry_delay(7), 3840);    // 64 min
+        assert_eq!(calculate_retry_delay(1), 60); // 1 min
+        assert_eq!(calculate_retry_delay(2), 120); // 2 min
+        assert_eq!(calculate_retry_delay(3), 240); // 4 min
+        assert_eq!(calculate_retry_delay(4), 480); // 8 min
+        assert_eq!(calculate_retry_delay(5), 960); // 16 min
+        assert_eq!(calculate_retry_delay(6), 1920); // 32 min
+        assert_eq!(calculate_retry_delay(7), 3840); // 64 min
     }
 
     #[test]
@@ -234,6 +233,9 @@ mod tests {
         assert_eq!(EventType::MachineRevoked.event_name(), "machine.revoked");
         assert_eq!(EventType::SessionRevoked.event_name(), "session.revoked");
         assert_eq!(EventType::IdentityFrozen.event_name(), "identity.frozen");
-        assert_eq!(EventType::IdentityDisabled.event_name(), "identity.disabled");
+        assert_eq!(
+            EventType::IdentityDisabled.event_name(),
+            "identity.disabled"
+        );
     }
 }

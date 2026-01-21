@@ -4,11 +4,12 @@ members = [
     "crates/zero-auth-storage",
     "crates/zero-auth-policy",
     "crates/zero-auth-identity-core",
-    "crates/zero-auth-auth-methods",
+    "crates/zero-auth-methods",
     "crates/zero-auth-sessions",
     "crates/zero-auth-integrations",
     "crates/zero-auth-server",
-    "test-client",
+    "crates/zero-auth-client",
+    "tests",
 ]
 resolver = "2"
 
@@ -32,6 +33,7 @@ password-hash = "0.5"
 zeroize = { version = "1.7", features = ["derive"] }
 rand = "0.8"
 getrandom = "0.2"
+sharks = "0.5"
 
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }

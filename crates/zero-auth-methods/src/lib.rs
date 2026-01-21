@@ -19,6 +19,7 @@ pub mod oauth;
 pub mod service;
 pub mod traits;
 pub mod types;
+pub mod validation;
 pub mod wallet;
 
 // Re-exports

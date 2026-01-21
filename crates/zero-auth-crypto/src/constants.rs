@@ -57,9 +57,9 @@ pub const SHAMIR_TOTAL_SHARES: usize = 5;
 pub const MFA_BACKUP_CODES_COUNT: usize = 10;
 
 /// Domain Separation Strings (as specified in cryptographic-constants.md § 11)
-/// Domain separation for Central Public Key derivation
+/// Domain separation for Identity Signing Key derivation
 /// Format: "cypher:auth:identity:v1" || identity_id
-pub const DOMAIN_IDENTITY: &str = "cypher:auth:identity:v1";
+pub const DOMAIN_IDENTITY_SIGNING: &str = "cypher:auth:identity:v1";
 
 /// Domain separation for Machine seed derivation
 /// Format: "cypher:shared:machine:v1" || identity_id || machine_id || epoch
@@ -123,13 +123,8 @@ pub mod argon2_params {
 
     /// Get Argon2id parameters
     pub fn get_params() -> Params {
-        Params::new(
-            MEMORY_COST,
-            TIME_COST,
-            PARALLELISM,
-            Some(OUTPUT_LENGTH),
-        )
-        .expect("valid Argon2id parameters")
+        Params::new(MEMORY_COST, TIME_COST, PARALLELISM, Some(OUTPUT_LENGTH))
+            .expect("valid Argon2id parameters")
     }
 
     /// Argon2 version
@@ -152,8 +147,8 @@ mod tests {
     #[test]
     fn test_domain_strings_follow_spec() {
         // All domain strings must follow format: "cypher:{service}:{purpose}:v{version}"
-        assert!(DOMAIN_IDENTITY.starts_with("cypher:"));
-        assert!(DOMAIN_IDENTITY.contains(":v1"));
+        assert!(DOMAIN_IDENTITY_SIGNING.starts_with("cypher:"));
+        assert!(DOMAIN_IDENTITY_SIGNING.contains(":v1"));
 
         assert!(DOMAIN_MACHINE_SEED.starts_with("cypher:"));
         assert!(DOMAIN_MACHINE_SEED.contains(":v1"));
@@ -164,9 +159,12 @@ mod tests {
 
     #[test]
     fn test_shamir_threshold_is_valid() {
-        assert!(SHAMIR_THRESHOLD <= SHAMIR_TOTAL_SHARES);
-        assert_eq!(SHAMIR_THRESHOLD, 3);
-        assert_eq!(SHAMIR_TOTAL_SHARES, 5);
+        // Use runtime comparison to avoid clippy constant assertion warning
+        let threshold = SHAMIR_THRESHOLD;
+        let total = SHAMIR_TOTAL_SHARES;
+        assert!(threshold <= total, "Threshold must be <= total shares");
+        assert_eq!(threshold, 3);
+        assert_eq!(total, 5);
     }
 
     #[test]

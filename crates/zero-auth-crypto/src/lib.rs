@@ -17,17 +17,24 @@
 #![warn(clippy::all)]
 
 pub mod constants;
+pub mod derivation;
+pub mod encryption;
 pub mod errors;
 pub mod hashing;
 pub mod keys;
+pub mod shamir;
 pub mod signatures;
-pub mod encryption;
-pub mod derivation;
+pub mod utils;
 
 pub use constants::*;
+pub use derivation::*;
+pub use encryption::*;
 pub use errors::CryptoError;
 pub use hashing::*;
 pub use keys::*;
+pub use shamir::*;
 pub use signatures::*;
-pub use encryption::*;
-pub use derivation::*;
+pub use utils::*;
+
+// Re-export Challenge types for client use
+pub use signatures::{canonicalize_challenge, Challenge, EntityType};

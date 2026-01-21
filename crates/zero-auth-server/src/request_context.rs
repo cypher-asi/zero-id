@@ -1,11 +1,13 @@
 use axum::{
     async_trait,
-    extract::FromRequestParts,
-    http::request::Parts,
+    extract::{ConnectInfo, FromRequestParts},
+    http::{request::Parts, HeaderMap},
 };
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 
 use crate::error::ApiError;
+use crate::state::AppState;
 
 /// Extract client IP address with proxy validation
 ///
@@ -20,22 +22,21 @@ use crate::error::ApiError;
 ///
 /// This prevents IP spoofing attacks where an attacker can set arbitrary
 /// X-Forwarded-For headers to bypass rate limiting.
-#[allow(dead_code)] // TODO: Use this for rate limiting
 pub fn extract_client_ip(
-    parts: &Parts,
-    trusted_proxies: &[IpAddr],
+    headers: &HeaderMap,
     direct_ip: Option<IpAddr>,
+    trusted_proxies: &[IpAddr],
 ) -> String {
     // If we have a direct connection IP and it's from a trusted proxy,
     // then we can trust X-Forwarded-For
     if let Some(direct) = direct_ip {
         if trusted_proxies.contains(&direct) {
             // Trust X-Forwarded-For, use the rightmost IP (closest to server, before the proxy)
-            if let Some(forwarded) = parts.headers.get("X-Forwarded-For") {
+            if let Some(forwarded) = headers.get("X-Forwarded-For") {
                 if let Ok(forwarded_str) = forwarded.to_str() {
                     // Take the last IP in the chain (rightmost)
                     // This is the client IP as seen by our trusted proxy
-                    if let Some(ip_str) = forwarded_str.split(',').rev().next() {
+                    if let Some(ip_str) = forwarded_str.split(',').next_back() {
                         let ip_str = ip_str.trim();
                         // Validate it's a proper IP address
                         if ip_str.parse::<IpAddr>().is_ok() {
@@ -44,9 +45,9 @@ pub fn extract_client_ip(
                     }
                 }
             }
-            
+
             // Fallback to X-Real-IP if X-Forwarded-For is not valid
-            if let Some(real_ip) = parts.headers.get("X-Real-IP") {
+            if let Some(real_ip) = headers.get("X-Real-IP") {
                 if let Ok(ip_str) = real_ip.to_str() {
                     let ip_str = ip_str.trim();
                     if ip_str.parse::<IpAddr>().is_ok() {
@@ -55,74 +56,41 @@ pub fn extract_client_ip(
                 }
             }
         }
-        
+
         // If not from trusted proxy, use direct connection IP
         return direct.to_string();
     }
-    
+
     // No direct IP available, return unknown
     // In production, direct_ip should always be available from connection metadata
     tracing::warn!("No direct connection IP available for request");
     "unknown".to_string()
 }
 
+fn direct_ip_from_parts(parts: &Parts) -> Option<IpAddr> {
+    parts
+        .extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip())
+}
+
 /// Request context containing metadata about the current request
-/// 
+///
 /// This is used for audit logging, rate limiting, and security monitoring.
 #[derive(Debug, Clone)]
 pub struct RequestContext {
     /// Client IP address (extracted from connection or X-Forwarded-For)
     pub ip_address: String,
-    
+
     /// User-Agent string from the request headers
     pub user_agent: String,
 }
 
 impl RequestContext {
     /// Create a new request context from request parts
-    pub fn from_parts(parts: &Parts) -> Self {
-        // Extract IP address with basic validation
-        // 
-        // SECURITY NOTE: This uses the rightmost IP from X-Forwarded-For chain,
-        // which is harder to spoof than the leftmost IP. However, for full security,
-        // you should configure TRUSTED_PROXIES environment variable with your
-        // load balancer/proxy IPs.
-        //
-        // Without TRUSTED_PROXIES configured, X-Forwarded-For can still be spoofed
-        // if the attacker can connect directly to your server (bypassing the proxy).
-        let ip_address = parts
-            .headers
-            .get("X-Forwarded-For")
-            .and_then(|h| h.to_str().ok())
-            .and_then(|s| {
-                // Take rightmost IP (closest to server, last proxy in chain)
-                // This is more trustworthy than the leftmost IP
-                s.split(',')
-                    .rev()
-                    .next()
-                    .map(|ip| ip.trim())
-                    .filter(|ip| {
-                        // Validate it's a real IP address
-                        ip.parse::<IpAddr>().is_ok()
-                    })
-            })
-            .or_else(|| {
-                // Fall back to X-Real-IP
-                parts
-                    .headers
-                    .get("X-Real-IP")
-                    .and_then(|h| h.to_str().ok())
-                    .map(|s| s.trim())
-                    .filter(|ip| {
-                        // Validate it's a real IP address
-                        ip.parse::<IpAddr>().is_ok()
-                    })
-            })
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                tracing::warn!("No valid IP address found in request headers");
-                "unknown".to_string()
-            });
+    pub fn from_parts(parts: &Parts, trusted_proxies: &[IpAddr]) -> Self {
+        let direct_ip = direct_ip_from_parts(parts);
+        let ip_address = extract_client_ip(&parts.headers, direct_ip, trusted_proxies);
 
         // Extract User-Agent
         let user_agent = parts
@@ -140,17 +108,20 @@ impl RequestContext {
 }
 
 /// Extractor for request context
-/// 
+///
 /// This can be used in any handler to get request metadata
 #[async_trait]
-impl<S> FromRequestParts<S> for RequestContext
-where
-    S: Send + Sync,
-{
+impl FromRequestParts<Arc<AppState>> for RequestContext {
     type Rejection = ApiError;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        Ok(RequestContext::from_parts(parts))
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(RequestContext::from_parts(
+            parts,
+            &state.config.trusted_proxies,
+        ))
     }
 }
 
@@ -165,7 +136,10 @@ mod tests {
         // X-Forwarded-For: "client IP, proxy1 IP, proxy2 IP, ..."
         // We use the rightmost IP (10.0.0.1) as it's the closest to our server
         // and harder to spoof than the leftmost IP
-        headers.insert("X-Forwarded-For", "192.168.1.100, 10.0.0.1".parse().unwrap());
+        headers.insert(
+            "X-Forwarded-For",
+            "192.168.1.100, 10.0.0.1".parse().unwrap(),
+        );
         headers.insert("User-Agent", "TestClient/1.0".parse().unwrap());
 
         let req = Request::builder()
@@ -176,7 +150,12 @@ mod tests {
         let (mut parts, _) = req.into_parts();
         parts.headers = headers;
 
-        let context = RequestContext::from_parts(&parts);
+        parts
+            .extensions
+            .insert(ConnectInfo(SocketAddr::from(([10, 0, 0, 1], 443))));
+
+        let trusted_proxies = vec!["10.0.0.1".parse().unwrap()];
+        let context = RequestContext::from_parts(&parts, &trusted_proxies);
 
         // Should extract rightmost IP (closest to server)
         assert_eq!(context.ip_address, "10.0.0.1");
@@ -191,9 +170,31 @@ mod tests {
             .unwrap();
 
         let (parts, _) = req.into_parts();
-        let context = RequestContext::from_parts(&parts);
+        let context = RequestContext::from_parts(&parts, &[]);
 
         assert_eq!(context.ip_address, "unknown");
         assert_eq!(context.user_agent, "unknown");
+    }
+
+    #[test]
+    fn test_request_context_trusted_proxy_uses_forwarded_for() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Forwarded-For", "203.0.113.9".parse().unwrap());
+
+        let req = Request::builder()
+            .uri("https://example.com/")
+            .body(())
+            .unwrap();
+
+        let (mut parts, _) = req.into_parts();
+        parts.headers = headers;
+        parts
+            .extensions
+            .insert(ConnectInfo(SocketAddr::from(([10, 0, 0, 10], 443))));
+
+        let trusted_proxies = vec!["10.0.0.10".parse().unwrap()];
+        let context = RequestContext::from_parts(&parts, &trusted_proxies);
+
+        assert_eq!(context.ip_address, "203.0.113.9");
     }
 }

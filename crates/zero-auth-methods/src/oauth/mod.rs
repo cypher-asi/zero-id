@@ -18,17 +18,17 @@
 //! - Expiration (exp) validation
 //! - Nonce replay protection
 
-pub mod types;
-pub mod config;
 pub mod client;
+pub mod config;
 pub mod oidc;
 pub mod providers;
+pub mod types;
 
 // Re-export commonly used items
-pub use types::{OAuthLink, OAuthProvider, OAuthState, OAuthTokenResponse, OAuthUserInfo};
-pub use config::OAuthConfig;
 pub use client::OAuthClient;
+pub use config::OAuthConfig;
 pub use providers::{EpicGamesProvider, GoogleProvider, Provider, XProvider};
+pub use types::{OAuthLink, OAuthProvider, OAuthState, OAuthTokenResponse, OAuthUserInfo};
 
 // Re-export OIDC functionality for backward compatibility
 pub use oidc::{

@@ -1,4 +1,4 @@
-use crate::{Result, Session, SessionTokens, JwksResponse, TokenIntrospection};
+use crate::{JwksResponse, Result, Session, SessionTokens, TokenIntrospection};
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -37,7 +37,11 @@ pub trait SessionManager: Send + Sync {
     async fn get_session(&self, session_id: Uuid) -> Result<Session>;
 
     /// Verify and introspect a JWT token
-    async fn introspect_token(&self, token: String, audience: Option<String>) -> Result<TokenIntrospection>;
+    async fn introspect_token(
+        &self,
+        token: String,
+        audience: Option<String>,
+    ) -> Result<TokenIntrospection>;
 
     /// Get JWKS for public key distribution
     async fn get_jwks(&self) -> Result<JwksResponse>;

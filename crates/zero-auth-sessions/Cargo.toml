@@ -16,6 +16,7 @@ jsonwebtoken = "9"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 sha2 = "0.10"
 rand = "0.8"
+zeroize = { version = "1.7", features = ["derive"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -32,8 +33,8 @@ async-trait = "0.1"
 # Error handling
 thiserror = "1.0"
 
-# Time
-chrono = "0.4"
+# Logging
+tracing = "0.1"
 
 # Base64
 base64 = "0.21"
