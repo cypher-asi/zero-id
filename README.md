@@ -4,6 +4,7 @@ A cryptographic identity and authentication service with client-controlled roots
 
 ## Table of Contents
 
+- [Quantum-Resistant Cryptography](#quantum-resistant-cryptography)
 - [Overview](#overview)
   - [Core Principles](#core-principles)
   - [Open Source & Self-Hosting](#open-source--self-hosting)
@@ -37,6 +38,54 @@ A cryptographic identity and authentication service with client-controlled roots
 - [Project Status](#project-status)
 - [Contributing](#contributing)
 - [License](#license)
+
+## Quantum-Resistant Cryptography
+
+zero-id supports **post-quantum cryptography** via PQ-Hybrid key derivation, protecting against future quantum computing threats while maintaining backward compatibility.
+
+### Key Schemes
+
+| Scheme | Keys Derived | Use Case |
+|--------|-------------|----------|
+| **Classical** | Ed25519 + X25519 | Default, OpenMLS compatible, smaller keys |
+| **PQ-Hybrid** | Classical + ML-DSA-65 + ML-KEM-768 | Post-quantum protection with backward compatibility |
+
+### Keys Derivable from Neural Key
+
+All keys are deterministically derived from a single 32-byte Neural Key using HKDF-SHA256 with domain separation:
+
+```
+Neural Key (32 bytes, client-only)
+│
+├── Identity Signing Key (Ed25519)
+│   Purpose: Signs machine enrollments, key rotations, recovery operations
+│
+├── MFA Key Encryption Key (XChaCha20-Poly1305)
+│   Purpose: Encrypts TOTP secrets
+│
+└── Machine Key [per device, per epoch]
+    │
+    ├── Classical Keys (always present)
+    │   ├── Signing Key (Ed25519, 32 B)
+    │   └── Encryption Key (X25519, 32 B)
+    │
+    └── Post-Quantum Keys (PQ-Hybrid mode)
+        ├── PQ Signing Key (ML-DSA-65, 1,952 B) — FIPS 204
+        └── PQ Encryption Key (ML-KEM-768, 1,184 B) — FIPS 203
+```
+
+### Post-Quantum Algorithm Sizes
+
+| Algorithm | Standard | Public Key | Signature/Ciphertext |
+|-----------|----------|------------|---------------------|
+| Ed25519 | RFC 8032 | 32 B | 64 B |
+| X25519 | RFC 7748 | 32 B | 32 B |
+| ML-DSA-65 | FIPS 204 | 1,952 B | 3,309 B |
+| ML-KEM-768 | FIPS 203 | 1,184 B | 1,088 B |
+
+See [Quantum Considerations](docs/encryption/quantum.md) for threat analysis and migration strategy.
+
+---
 
 ## Documentation
 
