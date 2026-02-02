@@ -157,9 +157,9 @@ pub fn map_service_error(error: anyhow::Error) -> ApiError {
 
     let error_str = error.to_string();
 
-    if error_str.contains("not found") {
+    if error_str.contains("not found") || error_str.contains("not linked") {
         ApiError::NotFound(error_str)
-    } else if error_str.contains("already exists") {
+    } else if error_str.contains("already exists") || error_str.contains("already linked") {
         ApiError::Conflict(error_str)
     } else if error_str.contains("frozen") {
         ApiError::IdentityFrozen
