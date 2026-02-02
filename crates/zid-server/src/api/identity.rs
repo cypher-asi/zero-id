@@ -233,6 +233,19 @@ pub async fn freeze_identity(
 ) -> Result<Json<CeremonyResponse>, ApiError> {
     let identity_id = auth.claims.identity_id()?;
 
+    // Check tier - freeze requires self-sovereign
+    let identity = state
+        .identity_service
+        .get_identity(identity_id)
+        .await
+        .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
+    
+    if identity.tier == zid_identity_core::IdentityTier::Managed {
+        return Err(ApiError::InvalidRequest(
+            "Freeze ceremony requires self-sovereign identity. Please upgrade your identity first.".to_string()
+        ));
+    }
+
     // Parse freeze reason
     let freeze_reason = match req.reason.as_str() {
         "security_incident" => FreezeReason::SecurityIncident,
@@ -298,6 +311,19 @@ pub async fn unfreeze_identity(
 ) -> Result<Json<CeremonyResponse>, ApiError> {
     let identity_id = auth.claims.identity_id()?;
 
+    // Check tier - unfreeze requires self-sovereign
+    let identity = state
+        .identity_service
+        .get_identity(identity_id)
+        .await
+        .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
+    
+    if identity.tier == zid_identity_core::IdentityTier::Managed {
+        return Err(ApiError::InvalidRequest(
+            "Unfreeze ceremony requires self-sovereign identity. Please upgrade your identity first.".to_string()
+        ));
+    }
+
     // Parse signatures into Approvals
     let mut approvals = Vec::new();
     for (i, sig_hex) in req.approval_signatures.iter().enumerate() {
@@ -331,6 +357,20 @@ pub async fn recovery_ceremony(
     Json(req): Json<RecoveryCeremonyRequest>,
 ) -> Result<Json<CeremonyResponse>, ApiError> {
     let identity_id = auth.claims.identity_id()?;
+
+    // Check tier - recovery ceremony requires self-sovereign
+    let identity = state
+        .identity_service
+        .get_identity(identity_id)
+        .await
+        .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
+    
+    if identity.tier == zid_identity_core::IdentityTier::Managed {
+        return Err(ApiError::InvalidRequest(
+            "Recovery ceremony requires self-sovereign identity. Managed identities use multi-method recovery via /v1/identity/recover endpoint.".to_string()
+        ));
+    }
+
     let new_identity_signing_public_key = parse_hex_32(&req.new_identity_signing_public_key)?;
 
     // Parse signatures into Approvals
@@ -390,6 +430,20 @@ pub async fn rotation_ceremony(
     auth.claims.require_mfa()?;
 
     let identity_id = auth.claims.identity_id()?;
+
+    // Check tier - rotation ceremony requires self-sovereign
+    let identity = state
+        .identity_service
+        .get_identity(identity_id)
+        .await
+        .map_err(|e| map_service_error(anyhow::anyhow!(e)))?;
+    
+    if identity.tier == zid_identity_core::IdentityTier::Managed {
+        return Err(ApiError::InvalidRequest(
+            "Rotation ceremony requires self-sovereign identity. Please upgrade your identity first.".to_string()
+        ));
+    }
+
     let new_identity_signing_public_key = parse_hex_32(&req.new_identity_signing_public_key)?;
 
     // Parse rotation signature (signature from current identity signing key)

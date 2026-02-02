@@ -208,16 +208,155 @@ pub struct WalletSignature {
     pub mfa_code: Option<String>,
 }
 
-/// Wallet credential
+/// Wallet blockchain types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WalletType {
+    /// Ethereum mainnet (EVM, SECP256k1, EIP-191)
+    Ethereum,
+    /// Polygon (EVM, SECP256k1, EIP-191)
+    Polygon,
+    /// Arbitrum (EVM, SECP256k1, EIP-191)
+    Arbitrum,
+    /// Base (EVM, SECP256k1, EIP-191)
+    Base,
+    /// Solana (Ed25519)
+    Solana,
+}
+
+impl WalletType {
+    /// Get the signature scheme for this wallet type
+    pub fn signature_scheme(&self) -> SignatureScheme {
+        match self {
+            Self::Ethereum | Self::Polygon | Self::Arbitrum | Self::Base => {
+                SignatureScheme::Secp256k1Eip191
+            }
+            Self::Solana => SignatureScheme::Ed25519,
+        }
+    }
+
+    /// Convert to auth method type
+    pub fn to_auth_method_type(&self) -> AuthMethodType {
+        match self {
+            Self::Ethereum | Self::Polygon | Self::Arbitrum | Self::Base => AuthMethodType::WalletEvm,
+            Self::Solana => AuthMethodType::WalletSolana,
+        }
+    }
+
+    /// Get wallet type as string
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ethereum => "ethereum",
+            Self::Polygon => "polygon",
+            Self::Arbitrum => "arbitrum",
+            Self::Base => "base",
+            Self::Solana => "solana",
+        }
+    }
+
+    /// Check if this is an EVM-compatible wallet
+    pub fn is_evm(&self) -> bool {
+        matches!(
+            self,
+            Self::Ethereum | Self::Polygon | Self::Arbitrum | Self::Base
+        )
+    }
+}
+
+/// Signature scheme used by different wallet types
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureScheme {
+    /// Ethereum personal_sign (EIP-191) using SECP256k1
+    Secp256k1Eip191,
+    /// Ed25519 (Solana native)
+    Ed25519,
+}
+
+/// Authentication method types for unified credential tracking
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthMethodType {
+    /// Email + password
+    Email = 0x01,
+    /// Google OAuth
+    OAuthGoogle = 0x02,
+    /// X (Twitter) OAuth
+    OAuthX = 0x03,
+    /// Epic Games OAuth
+    OAuthEpic = 0x04,
+    /// EVM wallet (Ethereum, Polygon, Arbitrum, Base)
+    WalletEvm = 0x10,
+    /// Solana wallet
+    WalletSolana = 0x11,
+    /// Machine key (Neural Key flow)
+    MachineKey = 0x20,
+}
+
+impl AuthMethodType {
+    /// Get method type as string
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Email => "email",
+            Self::OAuthGoogle => "oauth_google",
+            Self::OAuthX => "oauth_x",
+            Self::OAuthEpic => "oauth_epic",
+            Self::WalletEvm => "wallet_evm",
+            Self::WalletSolana => "wallet_solana",
+            Self::MachineKey => "machine_key",
+        }
+    }
+
+    /// Check if this is an OAuth method
+    pub fn is_oauth(&self) -> bool {
+        matches!(
+            self,
+            Self::OAuthGoogle | Self::OAuthX | Self::OAuthEpic
+        )
+    }
+
+    /// Check if this is a wallet method
+    pub fn is_wallet(&self) -> bool {
+        matches!(self, Self::WalletEvm | Self::WalletSolana)
+    }
+}
+
+/// Record of linked authentication method
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthLinkRecord {
+    /// Identity ID
+    pub identity_id: Uuid,
+    /// Type of authentication method
+    pub method_type: AuthMethodType,
+    /// Method-specific identifier (email, provider:sub, wallet address)
+    pub method_id: String,
+    /// When this method was linked
+    pub linked_at: u64,
+    /// Whether this is the primary auth method (used for creation)
+    pub is_primary: bool,
+    /// Whether the method has been verified
+    pub verified: bool,
+    /// Last authentication timestamp
+    pub last_used_at: Option<u64>,
+}
+
+/// Wallet credential with extended type awareness
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalletCredential {
     /// Identity ID
     pub identity_id: Uuid,
 
-    /// Wallet address (lowercased, with 0x prefix)
+    /// Wallet type (ethereum, solana, etc.)
+    #[serde(default = "default_wallet_type")]
+    pub wallet_type: WalletType,
+
+    /// Wallet address (lowercased, with 0x prefix for EVM, base58 for Solana)
     pub wallet_address: String,
 
-    /// Blockchain type (e.g., "ethereum", "polygon")
+    /// Public key bytes (stored for Solana where address = pubkey)
+    #[serde(default)]
+    pub public_key: Option<[u8; 32]>,
+
+    /// Blockchain type (e.g., "ethereum", "polygon") - deprecated, use wallet_type
     pub chain: String,
 
     /// Created timestamp
@@ -231,4 +370,8 @@ pub struct WalletCredential {
 
     /// When credential was revoked
     pub revoked_at: Option<u64>,
+}
+
+fn default_wallet_type() -> WalletType {
+    WalletType::Ethereum
 }

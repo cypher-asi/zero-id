@@ -14,11 +14,44 @@ pub trait EventPublisher: Send + Sync {
     async fn publish(&self, event: RevocationEvent) -> Result<()>;
 }
 
+/// Request to create a managed identity (for trait interface)
+#[derive(Debug, Clone)]
+pub struct CreateManagedIdentityParams {
+    /// Service master key (used to derive ISK)
+    pub service_master_key: [u8; 32],
+    /// Authentication method type (e.g., "oauth:google", "email", "wallet:evm")
+    pub method_type: String,
+    /// Method-specific identifier (e.g., provider sub, email hash, wallet address)
+    pub method_id: String,
+    /// Optional namespace name for the personal namespace
+    pub namespace_name: Option<String>,
+}
+
+/// Response from managed identity creation (for trait interface)
+#[derive(Debug, Clone)]
+pub struct CreateManagedIdentityResult {
+    /// Created identity
+    pub identity: Identity,
+    /// Virtual machine ID for this identity
+    pub machine_id: Uuid,
+    /// Personal namespace ID (same as identity_id)
+    pub namespace_id: Uuid,
+}
+
 /// Identity Core subsystem trait
 #[async_trait]
 pub trait IdentityCore: Send + Sync {
-    /// Create a new identity with Neural Key authorization
+    /// Create a new identity with Neural Key authorization (self-sovereign)
     async fn create_identity(&self, request: CreateIdentityRequest) -> Result<Identity>;
+
+    /// Create a managed identity with server-derived keys
+    ///
+    /// This creates an identity where the ISK is derived from the service master key
+    /// rather than a client-generated Neural Key.
+    async fn create_managed_identity(
+        &self,
+        params: CreateManagedIdentityParams,
+    ) -> Result<CreateManagedIdentityResult>;
 
     /// Get identity by ID
     async fn get_identity(&self, identity_id: Uuid) -> Result<Identity>;

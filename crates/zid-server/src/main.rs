@@ -160,12 +160,22 @@ fn create_router(state: Arc<AppState>) -> Router {
         // Health checks
         .route("/health", get(api::health::health_check))
         .route("/ready", get(api::health::readiness_check))
-        // Identity management
+        // Identity management (self-sovereign creation)
         .route("/v1/identity", post(api::identity::create_identity))
         .route(
             "/v1/identity/:identity_id",
             get(api::identity::get_identity),
         )
+        // Identity creation (managed tier)
+        .route("/v1/identity/email", post(api::identity_creation::create_email_identity))
+        .route("/v1/identity/oauth/:provider", post(api::identity_creation::initiate_oauth_identity))
+        .route("/v1/identity/oauth/:provider/callback", post(api::identity_creation::complete_oauth_identity))
+        .route("/v1/identity/wallet/challenge", post(api::identity_creation::initiate_wallet_identity))
+        .route("/v1/identity/wallet/verify", post(api::identity_creation::complete_wallet_identity))
+        // Identity tier and upgrade
+        .route("/v1/identity/tier", get(api::identity_creation::get_tier_status))
+        .route("/v1/identity/upgrade", post(api::identity_creation::upgrade_identity))
+        // Ceremonies (self-sovereign only)
         .route("/v1/identity/freeze", post(api::identity::freeze_identity))
         .route(
             "/v1/identity/unfreeze",

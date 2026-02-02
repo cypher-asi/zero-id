@@ -3,7 +3,15 @@
 mod ceremonies;
 mod identity;
 mod machine;
+mod managed;
 mod namespace;
+mod upgrade;
+
+// Re-export managed identity types
+pub use managed::{CreateManagedIdentityRequest, CreateManagedIdentityResponse};
+
+// Re-export upgrade ceremony types
+pub use upgrade::{TierStatusResponse, UpgradeIdentityRequest, UpgradeIdentityResponse};
 
 use crate::{errors::*, traits::*, types::*};
 use async_trait::async_trait;
@@ -129,6 +137,24 @@ where
 {
     async fn create_identity(&self, request: CreateIdentityRequest) -> Result<Identity> {
         self.create_identity_internal(request).await
+    }
+
+    async fn create_managed_identity(
+        &self,
+        params: crate::traits::CreateManagedIdentityParams,
+    ) -> Result<crate::traits::CreateManagedIdentityResult> {
+        let request = CreateManagedIdentityRequest {
+            service_master_key: params.service_master_key,
+            method_type: params.method_type,
+            method_id: params.method_id,
+            namespace_name: params.namespace_name,
+        };
+        let response = self.create_managed_identity(request).await?;
+        Ok(crate::traits::CreateManagedIdentityResult {
+            identity: response.identity,
+            machine_id: response.machine_id,
+            namespace_id: response.namespace_id,
+        })
     }
 
     async fn get_identity(&self, identity_id: Uuid) -> Result<Identity> {

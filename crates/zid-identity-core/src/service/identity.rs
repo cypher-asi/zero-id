@@ -209,6 +209,8 @@ where
             identity_id: request.identity_id,
             identity_signing_public_key: request.identity_signing_public_key,
             status: IdentityStatus::Active,
+            tier: IdentityTier::SelfSovereign, // Traditional creation is self-sovereign
+            neural_key_commitment: None, // TODO: Accept commitment from request
             created_at: request.created_at,
             updated_at: request.created_at,
             frozen_at: None,

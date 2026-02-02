@@ -132,6 +132,10 @@ pub const DOMAIN_SHARE_BACKUP_KEK: &str = "cypher:share-backup-kek:v1";
 /// Format: "cypher:share-backup:v1" || identity_id || share_index
 pub const DOMAIN_SHARE_BACKUP_AAD: &str = "cypher:share-backup:v1";
 
+/// Domain separation for managed identity signing key derivation
+/// Format: "cypher:managed:identity:v1" || method_type || method_id
+pub const DOMAIN_MANAGED_IDENTITY: &str = "cypher:managed:identity:v1";
+
 /// Domain separation for Shared Vault Key (SVK) derivation (zero-vault)
 /// Format: "cypher:vault:svk:v1" || cell_id || vault_id
 pub const DOMAIN_VAULT_SVK: &str = "cypher:vault:svk:v1";

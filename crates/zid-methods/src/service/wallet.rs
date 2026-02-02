@@ -125,7 +125,9 @@ where
         // Create credential
         let credential = WalletCredential {
             identity_id,
+            wallet_type: WalletType::Ethereum, // Default to Ethereum for legacy attach_wallet_credential
             wallet_address: wallet_address_lower.clone(),
+            public_key: None,
             chain,
             created_at: current_timestamp(),
             last_used_at: current_timestamp(),

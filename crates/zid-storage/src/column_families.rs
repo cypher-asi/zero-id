@@ -50,6 +50,16 @@ pub const CF_WALLET_CREDENTIALS: &str = "wallet_credentials";
 /// Wallet credentials by identity: (identity_id, wallet_address) → ()
 pub const CF_WALLET_CREDENTIALS_BY_IDENTITY: &str = "wallet_credentials_by_identity";
 
+/// Auth method links: (identity_id, method_type) → AuthLinkRecord
+pub const CF_AUTH_LINKS: &str = "auth_links";
+
+/// Auth method links by method ID: method_key → identity_id
+/// method_key format: "{method_type}:{method_id}" (e.g., "email:user@example.com")
+pub const CF_AUTH_LINKS_BY_METHOD: &str = "auth_links_by_method";
+
+/// Primary auth method: identity_id → AuthMethodType
+pub const CF_PRIMARY_AUTH_METHOD: &str = "primary_auth_method";
+
 /// OIDC nonces: nonce → created_at (TTL: 10 min)
 pub const CF_OIDC_NONCES: &str = "oidc_nonces";
 
@@ -111,6 +121,9 @@ pub fn all_column_families() -> Vec<&'static str> {
         CF_OAUTH_LINKS_BY_IDENTITY,
         CF_WALLET_CREDENTIALS,
         CF_WALLET_CREDENTIALS_BY_IDENTITY,
+        CF_AUTH_LINKS,
+        CF_AUTH_LINKS_BY_METHOD,
+        CF_PRIMARY_AUTH_METHOD,
         CF_OIDC_NONCES,
         CF_JWKS_CACHE,
         CF_SESSIONS,

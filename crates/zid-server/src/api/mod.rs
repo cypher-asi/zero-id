@@ -4,6 +4,7 @@ pub mod credentials;
 pub mod health;
 pub mod helpers;
 pub mod identity;
+pub mod identity_creation;
 pub mod integrations;
 pub mod machines;
 pub mod mfa;

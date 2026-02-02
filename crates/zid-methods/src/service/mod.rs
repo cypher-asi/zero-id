@@ -14,10 +14,14 @@ use zeroize::Zeroizing;
 
 // Sub-modules
 mod email;
+mod identity_creation;
 mod machine;
 mod mfa;
 mod oauth;
 mod wallet;
+
+// Re-export identity creation types
+pub use identity_creation::IdentityCreationResponse;
 
 /// Column family names
 /// Column family name for challenge storage

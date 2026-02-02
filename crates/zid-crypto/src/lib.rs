@@ -49,3 +49,6 @@ pub use keys::{MlDsaKeyPair, MlKemKeyPair};
 pub use derivation::{
     derive_machine_keypair_with_scheme, derive_machine_pq_kem_seed, derive_machine_pq_signing_seed,
 };
+
+// Re-export managed identity derivation
+pub use derivation::derive_managed_identity_signing_keypair;

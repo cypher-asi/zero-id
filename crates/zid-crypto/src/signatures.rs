@@ -40,6 +40,89 @@ pub enum EntityType {
     Email = 0x03,
 }
 
+impl Challenge {
+    /// Create a new challenge for machine authentication
+    pub fn new_for_machine(machine_id: Uuid) -> Self {
+        let timestamp = crate::current_timestamp();
+        let mut nonce = [0u8; CHALLENGE_NONCE_SIZE];
+        rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce);
+
+        Self {
+            challenge_id: Uuid::new_v4(),
+            entity_id: machine_id,
+            entity_type: EntityType::Machine,
+            purpose: "authentication".to_string(),
+            aud: "cypher".to_string(),
+            iat: timestamp,
+            exp: timestamp + CHALLENGE_EXPIRY_SECONDS,
+            nonce,
+            used: false,
+        }
+    }
+
+    /// Create a new challenge for wallet authentication
+    ///
+    /// For wallets, the entity_id is derived from the wallet address hash.
+    pub fn new_for_wallet(wallet_address: &str) -> Self {
+        let timestamp = crate::current_timestamp();
+        let mut nonce = [0u8; CHALLENGE_NONCE_SIZE];
+        rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce);
+
+        // Derive a UUID from wallet address for entity_id
+        let address_hash = crate::hashing::blake3_hash(wallet_address.as_bytes());
+        let mut uuid_bytes = [0u8; 16];
+        uuid_bytes.copy_from_slice(&address_hash[..16]);
+        let entity_id = Uuid::from_bytes(uuid_bytes);
+
+        Self {
+            challenge_id: Uuid::new_v4(),
+            entity_id,
+            entity_type: EntityType::Wallet,
+            purpose: "wallet_auth".to_string(),
+            aud: "cypher".to_string(),
+            iat: timestamp,
+            exp: timestamp + CHALLENGE_EXPIRY_SECONDS,
+            nonce,
+            used: false,
+        }
+    }
+
+    /// Create a new challenge for email authentication
+    pub fn new_for_email(email: &str) -> Self {
+        let timestamp = crate::current_timestamp();
+        let mut nonce = [0u8; CHALLENGE_NONCE_SIZE];
+        rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce);
+
+        // Derive a UUID from email for entity_id
+        let email_hash = crate::hashing::blake3_hash(email.as_bytes());
+        let mut uuid_bytes = [0u8; 16];
+        uuid_bytes.copy_from_slice(&email_hash[..16]);
+        let entity_id = Uuid::from_bytes(uuid_bytes);
+
+        Self {
+            challenge_id: Uuid::new_v4(),
+            entity_id,
+            entity_type: EntityType::Email,
+            purpose: "email_auth".to_string(),
+            aud: "cypher".to_string(),
+            iat: timestamp,
+            exp: timestamp + CHALLENGE_EXPIRY_SECONDS,
+            nonce,
+            used: false,
+        }
+    }
+
+    /// Get the challenge ID
+    pub fn id(&self) -> Uuid {
+        self.challenge_id
+    }
+
+    /// Check if challenge is expired
+    pub fn is_expired(&self) -> bool {
+        crate::current_timestamp() > self.exp
+    }
+}
+
 /// Sign a message with Ed25519
 ///
 /// # Arguments

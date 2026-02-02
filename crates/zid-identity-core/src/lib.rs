@@ -16,6 +16,11 @@ pub mod traits;
 pub mod types;
 
 pub use errors::{IdentityCoreError, Result};
-pub use service::IdentityCoreService;
-pub use traits::{EventPublisher, IdentityCore};
+pub use service::{
+    CreateManagedIdentityRequest, CreateManagedIdentityResponse, IdentityCoreService,
+    TierStatusResponse, UpgradeIdentityRequest, UpgradeIdentityResponse,
+};
+pub use traits::{
+    CreateManagedIdentityParams, CreateManagedIdentityResult, EventPublisher, IdentityCore,
+};
 pub use types::*;

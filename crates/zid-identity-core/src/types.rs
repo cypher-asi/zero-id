@@ -14,12 +14,53 @@ pub enum IdentityStatus {
     Deleted = 0x04,
 }
 
+/// Identity tier - distinguishes between managed and self-sovereign identities
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum IdentityTier {
+    /// Managed identity: Server-derived keys from service master key.
+    /// Created via OAuth, email+password, or wallet signature.
+    /// Limited capabilities until upgraded.
+    #[default]
+    Managed = 0x01,
+    /// Self-sovereign identity: Client-side Neural Key generation.
+    /// Full Shamir shard backup and all ceremonies available.
+    SelfSovereign = 0x02,
+}
+
+impl IdentityTier {
+    /// Returns true if this is a self-sovereign identity
+    pub fn is_self_sovereign(&self) -> bool {
+        matches!(self, IdentityTier::SelfSovereign)
+    }
+
+    /// Returns true if this is a managed identity
+    pub fn is_managed(&self) -> bool {
+        matches!(self, IdentityTier::Managed)
+    }
+
+    /// Get tier as string for API responses
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            IdentityTier::Managed => "managed",
+            IdentityTier::SelfSovereign => "self_sovereign",
+        }
+    }
+}
+
 /// Identity record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Identity {
     pub identity_id: Uuid,
     pub identity_signing_public_key: [u8; 32],
     pub status: IdentityStatus,
+    /// Identity tier: Managed or SelfSovereign
+    #[serde(default)]
+    pub tier: IdentityTier,
+    /// BLAKE3 hash of Neural Key (only present for self-sovereign identities)
+    /// Used to verify Neural Key during upgrade and recovery ceremonies
+    #[serde(default)]
+    pub neural_key_commitment: Option<[u8; 32]>,
     pub created_at: u64,
     pub updated_at: u64,
     pub frozen_at: Option<u64>,
@@ -199,6 +240,26 @@ mod tests {
         assert_eq!(IdentityStatus::Disabled as u8, 0x02);
         assert_eq!(IdentityStatus::Frozen as u8, 0x03);
         assert_eq!(IdentityStatus::Deleted as u8, 0x04);
+    }
+
+    #[test]
+    fn test_identity_tier_values() {
+        assert_eq!(IdentityTier::Managed as u8, 0x01);
+        assert_eq!(IdentityTier::SelfSovereign as u8, 0x02);
+    }
+
+    #[test]
+    fn test_identity_tier_default() {
+        let tier = IdentityTier::default();
+        assert_eq!(tier, IdentityTier::Managed);
+        assert!(tier.is_managed());
+        assert!(!tier.is_self_sovereign());
+    }
+
+    #[test]
+    fn test_identity_tier_as_str() {
+        assert_eq!(IdentityTier::Managed.as_str(), "managed");
+        assert_eq!(IdentityTier::SelfSovereign.as_str(), "self_sovereign");
     }
 
     #[test]
