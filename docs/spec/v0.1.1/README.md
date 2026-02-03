@@ -22,48 +22,37 @@ The specifications are organized by dependency order, starting with the most fun
 
 ## Dependency Graph
 
-```mermaid
-graph TD
-    subgraph core [Core Layer]
-        CRYPTO[zid-crypto]
-        STORAGE[zid-storage]
-    end
-
-    subgraph domain [Domain Layer]
-        POLICY[zid-policy]
-        IDENTITY[zid-identity-core]
-        INTEGRATIONS[zid-integrations]
-        SESSIONS[zid-sessions]
-    end
-
-    subgraph app [Application Layer]
-        METHODS[zid-methods]
-        SERVER[zid-server]
-        CLIENT[zid-client]
-    end
-
-    POLICY --> STORAGE
-    IDENTITY --> STORAGE
-    IDENTITY --> CRYPTO
-    IDENTITY --> POLICY
-    INTEGRATIONS --> STORAGE
-    SESSIONS --> STORAGE
-    SESSIONS --> CRYPTO
-    
-    METHODS --> CRYPTO
-    METHODS --> IDENTITY
-    METHODS --> SESSIONS
-    METHODS --> POLICY
-    
-    SERVER --> METHODS
-    SERVER --> IDENTITY
-    SERVER --> SESSIONS
-    SERVER --> INTEGRATIONS
-    SERVER --> POLICY
-    SERVER --> STORAGE
-    
-    CLIENT --> CRYPTO
 ```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Application Layer                          │
+│         zid-server    zid-methods    zid-client                 │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        Domain Layer                             │
+│    zid-identity-core   zid-sessions   zid-policy                │
+│    zid-integrations                                             │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         Core Layer                              │
+│                  zid-crypto    zid-storage                      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+| Crate | Layer | Dependencies |
+|-------|-------|--------------|
+| `zid-crypto` | Core | (none) |
+| `zid-storage` | Core | (none) |
+| `zid-policy` | Domain | zid-storage |
+| `zid-integrations` | Domain | zid-storage |
+| `zid-sessions` | Domain | zid-crypto, zid-storage |
+| `zid-identity-core` | Domain | zid-crypto, zid-storage, zid-policy |
+| `zid-client` | Application | zid-crypto |
+| `zid-methods` | Application | zid-crypto, zid-identity-core, zid-sessions, zid-policy |
+| `zid-server` | Application | zid-methods, zid-identity-core, zid-sessions, zid-integrations, zid-policy, zid-storage |
 
 ## What's New in v0.1.1
 
@@ -179,11 +168,9 @@ For those focused on specific areas:
 
 ### Diagrams
 
-All diagrams use [Mermaid](https://mermaid.js.org/) syntax for portability:
-
-- **Dependency graphs**: `graph TD` (top-down) or `graph LR` (left-right)
-- **State machines**: `stateDiagram-v2`
-- **Sequence diagrams**: `sequenceDiagram`
+- **Dependency graphs**: ASCII art for universal rendering
+- **State machines**: [Mermaid](https://mermaid.js.org/) `stateDiagram-v2`
+- **Sequence diagrams**: Mermaid `sequenceDiagram`
 
 ### Code Examples
 

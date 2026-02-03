@@ -84,48 +84,69 @@ graph TB
 
 ### 2.2 Crate Dependency Graph
 
-```mermaid
-graph TD
-    subgraph core [Core Layer]
-        CRYPTO[zid-crypto]
-        STORAGE[zid-storage]
-    end
-
-    subgraph domain [Domain Layer]
-        POLICY[zid-policy]
-        IDENTITY[zid-identity-core]
-        INTEGRATIONS[zid-integrations]
-        SESSIONS[zid-sessions]
-    end
-
-    subgraph app [Application Layer]
-        METHODS[zid-methods]
-        SERVER[zid-server]
-        CLIENT[zid-client]
-    end
-
-    POLICY --> STORAGE
-    IDENTITY --> STORAGE
-    IDENTITY --> CRYPTO
-    IDENTITY --> POLICY
-    INTEGRATIONS --> STORAGE
-    SESSIONS --> STORAGE
-    SESSIONS --> CRYPTO
-    
-    METHODS --> CRYPTO
-    METHODS --> IDENTITY
-    METHODS --> SESSIONS
-    METHODS --> POLICY
-    
-    SERVER --> METHODS
-    SERVER --> IDENTITY
-    SERVER --> SESSIONS
-    SERVER --> INTEGRATIONS
-    SERVER --> POLICY
-    SERVER --> STORAGE
-    
-    CLIENT --> CRYPTO
 ```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Application Layer                          │
+│         zid-server    zid-methods    zid-client                 │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        Domain Layer                             │
+│    zid-identity-core   zid-sessions   zid-policy                │
+│    zid-integrations                                             │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         Core Layer                              │
+│                  zid-crypto    zid-storage                      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Detailed Dependencies
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ APPLICATION                                                                 │
+│                                                                             │
+│  zid-server ─────┬──────────────────────────────────────────┐               │
+│       │          │                                          │               │
+│       ▼          │                                          │               │
+│  zid-methods ────┼────────┬─────────────────┐               │               │
+│       │          │        │                 │               │               │
+│       │          │        │                 │               │               │
+│  zid-client      │        │                 │               │               │
+│       │          │        │                 │               │               │
+├───────┼──────────┼────────┼─────────────────┼───────────────┼───────────────┤
+│ DOMAIN           │        │                 │               │               │
+│       │          │        │                 │               │               │
+│       │          ▼        ▼                 ▼               ▼               │
+│       │   zid-identity  zid-sessions   zid-policy   zid-integrations        │
+│       │        │  │          │  │           │               │               │
+│       │        │  │          │  │           │               │               │
+├───────┼────────┼──┼──────────┼──┼───────────┼───────────────┼───────────────┤
+│ CORE  │        │  │          │  │           │               │               │
+│       │        │  │          │  │           │               │               │
+│       ▼        ▼  │          ▼  │           │               │               │
+│  zid-crypto ◀─────┴─────────────┘           │               │               │
+│                                             │               │               │
+│  zid-storage ◀──────────────────────────────┴───────────────┘               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Crate | Layer | Dependencies |
+|-------|-------|--------------|
+| `zid-crypto` | Core | (none) |
+| `zid-storage` | Core | (none) |
+| `zid-policy` | Domain | zid-storage |
+| `zid-integrations` | Domain | zid-storage |
+| `zid-sessions` | Domain | zid-crypto, zid-storage |
+| `zid-identity-core` | Domain | zid-crypto, zid-storage, zid-policy |
+| `zid-client` | Application | zid-crypto |
+| `zid-methods` | Application | zid-crypto, zid-identity-core, zid-sessions, zid-policy |
+| `zid-server` | Application | zid-methods, zid-identity-core, zid-sessions, zid-integrations, zid-policy, zid-storage |
 
 ### 2.3 Crate Responsibilities
 
