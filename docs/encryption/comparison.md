@@ -25,6 +25,7 @@ This document compares cryptographic mechanisms across three fundamentally diffe
 - Zero-knowledge of master secrets (Neural Key never leaves client)
 - Secure key recovery via 3-of-5 Shamir Secret Sharing
 - Modern authenticated encryption (XChaCha20-Poly1305)
+- **Post-quantum security via PQ-Hybrid mode (ML-DSA-65 + ML-KEM-768)**
 
 **Blockchain Platforms** (Bitcoin, Ethereum, Solana) prioritize:
 - Transaction integrity and non-repudiation
@@ -48,6 +49,7 @@ This document compares cryptographic mechanisms across three fundamentally diffe
 | Encryption | XChaCha20-Poly1305 AEAD | Rarely used (public data) | Always used (E2EE) |
 | Forward Secrecy | Per-machine key rotation | Not applicable | Critical requirement |
 | Key Recovery | 3-of-5 Shamir Secret Sharing | BIP-39 mnemonics | Device-based |
+| Post-Quantum | **PQ-Hybrid (ML-DSA-65 + ML-KEM-768)** | Vulnerable | Signal only (PQXDH) |
 
 ---
 
@@ -57,16 +59,17 @@ This document compares cryptographic mechanisms across three fundamentally diffe
 
 | Platform | Primary Scheme | Curve/Parameters | Signature Size | Public Key Size | Private Key Size |
 |----------|---------------|------------------|----------------|-----------------|------------------|
-| **Zero-Auth** | Ed25519 + X25519 | Curve25519 | 64B | 32B | 32B |
+| **Zero-Auth** | Ed25519 + ML-DSA-65 (PQ-Hybrid) | Curve25519 + Lattice | 64B (classical) / 3,309B (PQ) | 32B (classical) / 1,952B (PQ) | 32B |
+| **Zero-Auth** | X25519 + ML-KEM-768 (PQ-Hybrid) | Curve25519 + Lattice | N/A (KEM) | 32B (classical) / 1,184B (PQ) | 32B |
 | Bitcoin | ECDSA + Schnorr | secp256k1 | 70-72B (ECDSA), 64B (Schnorr) | 33B (compressed) | 32B |
 | Ethereum | ECDSA + BLS | secp256k1, BLS12-381 | 65B (ECDSA), 48B (BLS) | 64B (uncompressed) | 32B |
 | Solana | Ed25519 | Curve25519 | 64B | 32B | 32B |
-| Signal | Ed25519 + X25519 | Curve25519 | 64B | 32B | 32B |
+| Signal | Ed25519 + ML-KEM-1024 (PQXDH) | Curve25519 + Lattice | 64B | 32B (classical) / 1,568B (PQ) | 32B |
 | Telegram | RSA-2048 + DH | 2048-bit modulus | 256B | 256B | 256B |
 
-### Zero-Auth: Ed25519 and X25519 on Curve25519
+### Zero-Auth: PQ-Hybrid Cryptography (Classical + Post-Quantum)
 
-Zero-Auth uses the **Curve25519** family for all cryptographic operations:
+Zero-Auth uses a **PQ-Hybrid approach** combining classical Curve25519 algorithms with NIST post-quantum standards. This provides defense-in-depth: security is maintained if either the classical or post-quantum algorithm remains secure.
 
 #### Ed25519 (Signing)
 
@@ -83,13 +86,47 @@ Zero-Auth uses the **Curve25519** family for all cryptographic operations:
 - Machine Signing Keys: Sign authentication challenges
 - JWT Signing: EdDSA-based JWT tokens
 
-#### X25519 (Key Exchange)
+#### X25519 (Classical Key Exchange)
 
 - **Standard**: RFC 7748
 - **Public Key Size**: 32 bytes
 - **Characteristics**:
   - Used for ECDH key agreement
   - Machine encryption keys enable secure key exchange
+  - Always present for OpenMLS compatibility
+
+#### ML-DSA-65 (Post-Quantum Signatures)
+
+- **Standard**: NIST FIPS 204
+- **Security Level**: NIST Level 3 (128-bit post-quantum security)
+- **Signature Size**: 3,309 bytes
+- **Public Key Size**: 1,952 bytes
+- **Characteristics**:
+  - Lattice-based (Module-LWE problem)
+  - Deterministic signatures
+  - Resistant to Shor's algorithm
+
+**Usage in Zero-Auth**:
+- PQ-Hybrid machine signing keys (alongside Ed25519)
+- Future-proof authentication challenges
+- Protection against "harvest now, decrypt later" attacks
+
+#### ML-KEM-768 (Post-Quantum Key Encapsulation)
+
+- **Standard**: NIST FIPS 203
+- **Security Level**: NIST Level 3 (128-bit post-quantum security)
+- **Public Key Size**: 1,184 bytes
+- **Ciphertext Size**: 1,088 bytes
+- **Shared Secret**: 32 bytes
+- **Characteristics**:
+  - Lattice-based (Module-LWE problem)
+  - IND-CCA2 secure key encapsulation
+  - Resistant to Shor's algorithm
+
+**Usage in Zero-Auth**:
+- PQ-Hybrid machine encryption keys (alongside X25519)
+- Quantum-resistant key agreement
+- Hybrid shared secret derivation
 
 #### Key Derivation Hierarchy
 
@@ -99,17 +136,23 @@ NeuralKey (32 bytes, client CSPRNG)
 ├── Identity Signing Key (Ed25519)
 │   HKDF("cypher:id:identity:v1" || identity_id)
 │
-├── Machine Keys (per device)
+├── Machine Keys (per device) - Classical
 │   ├── Signing Key (Ed25519)
 │   │   HKDF("cypher:shared:machine:sign:v1" || machine_id)
 │   └── Encryption Key (X25519)
 │       HKDF("cypher:shared:machine:encrypt:v1" || machine_id)
 │
+├── Machine Keys (per device) - Post-Quantum (PQ-Hybrid mode)
+│   ├── PQ Signing Key (ML-DSA-65)
+│   │   HKDF("cypher:shared:machine:pq-sign:v1" || machine_id)
+│   └── PQ Encryption Key (ML-KEM-768)
+│       HKDF("cypher:shared:machine:pq-kem:v1" || machine_id)
+│
 └── MFA KEK (for TOTP secret encryption)
     HKDF("cypher:id:mfa-kek:v1" || identity_id)
 ```
 
-**Design Choice**: Zero-Auth separates signing and encryption keys using domain separation strings, preventing cross-protocol attacks while maintaining deterministic derivation from a single root secret.
+**Design Choice**: Zero-Auth separates signing and encryption keys using domain separation strings, preventing cross-protocol attacks while maintaining deterministic derivation from a single root secret. The versioned domain strings (`:v1`) enable graceful algorithm migration to post-quantum cryptography.
 
 ### Bitcoin: ECDSA and Schnorr on secp256k1
 
@@ -538,13 +581,14 @@ Signal's current architecture combines three key mechanisms:
 |----------|-----------|---------|----------|--------|--------|------------------|-------------------|
 | Confidentiality | Yes (AEAD) | N/A | N/A | N/A | Yes | Server can read | Yes |
 | Integrity | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Authentication | Yes (Ed25519) | Yes | Yes | Yes | Yes | Yes | Yes |
+| Authentication | Yes (Ed25519 + ML-DSA-65) | Yes | Yes | Yes | Yes | Yes | Yes |
 | Non-repudiation | Yes | Yes | Yes | Yes | Optional | No | No |
 | Forward Secrecy | Machine key rotation | N/A | N/A | N/A | Yes | No | Limited |
 | Post-Compromise Security | Via recovery ceremony | N/A | N/A | N/A | Yes | No | No |
 | Deniability | No | No | No | No | Yes | No | Partial |
 | Zero-Knowledge of Master Key | Yes (Neural Key) | No | No | No | No | No | No |
 | Key Recovery | 3-of-5 Shamir | BIP-39 mnemonic | BIP-39 mnemonic | BIP-39 mnemonic | Device-based | No | No |
+| **Post-Quantum Safe** | **Yes (PQ-Hybrid)** | No | No | No | Yes (PQXDH) | No | No |
 
 ### Forward Secrecy Analysis
 
@@ -565,7 +609,7 @@ Signal's current architecture combines three key mechanisms:
 
 ### Known Vulnerabilities and Mitigations
 
-#### Zero-Auth Ed25519/X25519
+#### Zero-Auth PQ-Hybrid (Ed25519/X25519 + ML-DSA-65/ML-KEM-768)
 
 | Vulnerability | Description | Mitigation |
 |--------------|-------------|------------|
@@ -574,6 +618,8 @@ Signal's current architecture combines three key mechanisms:
 | Nonce reuse | Repeated nonces could leak key material | 192-bit random nonces (birthday bound at 2^96) |
 | Domain separation failure | Cross-protocol key reuse | Unique domain strings per key type with versioning |
 | Server compromise | Attacker gains access to stored data | Only public keys stored server-side, Neural Key client-only |
+| Quantum attack (Shor's) | Future quantum computers break classical crypto | **PQ-Hybrid mode with ML-DSA-65 + ML-KEM-768** |
+| PQ algorithm weakness | New attacks on lattice assumptions | Hybrid approach retains classical security as fallback |
 
 #### Bitcoin/Ethereum ECDSA
 
@@ -615,15 +661,26 @@ Benchmarks on modern hardware (ARM Cortex-A76, single core):
 
 | Algorithm | Sign (ops/sec) | Verify (ops/sec) | Relative Speed | Used By |
 |-----------|---------------|------------------|----------------|---------|
-| Ed25519 | ~30,775 | ~11,870 | 1.0x (baseline) | **Zero-Auth**, Solana, Signal |
+| Ed25519 | ~30,775 | ~11,870 | 1.0x (baseline) | **Zero-Auth** (classical), Solana, Signal |
+| ML-DSA-65 | ~3,300 | ~2,900 | ~0.11x sign, ~0.24x verify | **Zero-Auth** (PQ-Hybrid) |
 | ECDSA P-256 | ~32,866 | ~10,449 | ~1.1x sign, ~0.9x verify | TLS |
 | ECDSA secp256k1 | ~28,000 | ~9,500 | ~0.9x sign, ~0.8x verify | Bitcoin, Ethereum, Zero-Auth (EVM wallets) |
 | Schnorr (secp256k1) | ~30,000 | ~11,000 | ~1.0x | Bitcoin (Taproot) |
 | BLS12-381 | ~1,200 | ~450 | ~0.04x (but aggregates) | Ethereum (consensus) |
 | RSA-2048 | ~900 | ~45,000 | ~0.03x sign, ~3.8x verify | Telegram |
 
+### Key Encapsulation Benchmarks
+
+| Algorithm | Keygen (ops/sec) | Encapsulate (ops/sec) | Decapsulate (ops/sec) | Used By |
+|-----------|-----------------|----------------------|----------------------|---------|
+| X25519 | ~40,000 | ~33,000 | ~33,000 | **Zero-Auth** (classical), Signal |
+| ML-KEM-768 | ~20,000 | ~14,000 | ~17,000 | **Zero-Auth** (PQ-Hybrid), Signal |
+
 **Key Observations**:
-- **Zero-Auth** uses Ed25519 for optimal signing/verification performance
+- **Zero-Auth** uses Ed25519 for optimal classical signing/verification performance
+- **ML-DSA-65** is ~10x slower than Ed25519 but provides quantum resistance
+- **ML-KEM-768** is ~2x slower than X25519 but provides quantum-safe key exchange
+- PQ-Hybrid mode trades performance for future-proof security
 - Ed25519 and ECDSA are comparable for individual operations
 - BLS is slower per-signature but aggregation makes it efficient at scale
 - RSA verification is fast but signing is extremely slow
@@ -644,7 +701,7 @@ For Ethereum consensus with N validators:
 
 | Platform | Signature Scheme | Typical TPS | Signature Overhead |
 |----------|-----------------|-------------|-------------------|
-| **Zero-Auth** | Ed25519 | N/A (auth system) | 64B signature per auth challenge |
+| **Zero-Auth** | Ed25519 + ML-DSA-65 (PQ-Hybrid) | N/A (auth system) | 64B (classical) or 3,373B (hybrid) per auth |
 | Bitcoin | ECDSA/Schnorr | 7 | ~50% of transaction size |
 | Ethereum | ECDSA | 15-30 | ~40% of transaction size |
 | Solana | Ed25519 | 65,000 | ~5% due to native verification |
@@ -672,20 +729,20 @@ Quantum computers running **Shor's algorithm** can efficiently solve:
 - Symmetric key search (AES-256 → ~AES-128 security)
 - Hash collisions (SHA-256 → ~SHA-128 security)
 
-### Platform Status (as of January 2026)
+### Platform Status (as of February 2026)
 
-| Platform | Current Status | Migration Plan | Timeline |
+| Platform | Current Status | Implementation | Timeline |
 |----------|---------------|----------------|----------|
-| **Zero-Auth** | **PQ-Hybrid implemented** | ML-DSA-65 + ML-KEM-768 always available (no feature flag) | **Production ready** |
-| **Bitcoin** | Vulnerable (ECDSA/Schnorr) | Research: SPHINCS+, XMSS hash-based signatures | No concrete timeline |
-| **Ethereum** | Vulnerable (ECDSA/BLS) | Research: ML-DSA for consensus, account abstraction for users | Long-term research |
-| **Solana** | Vulnerable (Ed25519) | Research: NIST PQC standards (ML-DSA, SLH-DSA) | No concrete timeline |
-| **Signal** | **Hybrid PQ deployed** | PQXDH + Triple Ratchet with ML-KEM-1024 | Production since 2024 |
-| **Telegram** | Vulnerable (RSA/DH) | No announced roadmap | Unknown |
+| **Zero-Auth** | **Production Ready** | ML-DSA-65 + ML-KEM-768 (FIPS 203/204) | **Deployed** |
+| **Signal** | **Production Ready** | PQXDH + Triple Ratchet with ML-KEM-1024 | Deployed (2024) |
+| Bitcoin | Vulnerable (ECDSA/Schnorr) | Research: SPHINCS+, XMSS hash-based signatures | No concrete timeline |
+| Ethereum | Vulnerable (ECDSA/BLS) | Research: ML-DSA for consensus, account abstraction for users | Long-term research |
+| Solana | Vulnerable (Ed25519) | Research: NIST PQC standards (ML-DSA, SLH-DSA) | No concrete timeline |
+| Telegram | Vulnerable (RSA/DH) | No announced roadmap | Unknown |
 
 ### Zero-Auth's Post-Quantum Implementation
 
-Zero-Auth has implemented PQ-Hybrid key support with the following approach:
+Zero-Auth is **production-ready** with full PQ-Hybrid cryptography. Unlike blockchain platforms constrained by on-chain storage costs, Zero-Auth can adopt larger post-quantum keys without protocol-level barriers.
 
 **Key Schemes** (always available, no feature flag required):
 ```rust
@@ -719,7 +776,7 @@ PQ KEM:               "cypher:shared:machine:pq-kem:v1"   → ML-KEM-768
 
 ### Signal's Post-Quantum Implementation
 
-Signal is the only platform with deployed post-quantum cryptography:
+Signal was the first major messaging platform with deployed post-quantum cryptography:
 
 **PQXDH Protocol**:
 ```
