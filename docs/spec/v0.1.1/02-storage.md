@@ -268,7 +268,7 @@ pub const CF_REPUTATION: &str = "reputation";
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Ready: RocksDbStorage::open()
+    [*] --> Ready: RocksDbStorage.open()
     
     Ready --> Reading: get/exists/get_by_prefix
     Ready --> Writing: put/delete

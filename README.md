@@ -668,17 +668,19 @@ cargo test --test identity_creation -- --ignored --nocapture
 
 | Crate | Unit Tests | Description |
 |-------|------------|-------------|
-| `zid-crypto` | 59 | Cryptographic primitives, key derivation, Shamir sharing |
-| `zid-methods` | 35 | Authentication methods, OAuth/OIDC, MFA, wallet signing |
-| `zid-integrations` | 24 | Webhooks, SSE events, external service integration |
+| `zid-crypto` | 116 | Cryptographic primitives, key derivation, Shamir sharing, PQ keys |
+| `zid-methods` | 47 | Authentication methods, OAuth/OIDC, MFA, wallet signing |
+| `zid-identity-core` | 37 | Identity and machine key management, namespaces, upgrades |
+| `zid-policy` | 34 | Policy engine, rate limiting, authorization rules |
 | `zid-sessions` | 21 | JWT tokens, session lifecycle, introspection |
-| `zid-policy` | 16 | Policy engine, rate limiting, authorization rules |
+| `zid-server` | 15 | API handlers, request context, validation |
 | `zid-storage` | 9 | RocksDB operations, column families |
-| `zid-identity-core` | 5 | Identity and machine key management |
-| `zid-server` | 4 | API handlers, request context |
-| **Total** | **173** | |
+| `zid-integrations` | 8 | Webhooks, SSE events, external service integration |
+| **Total** | **287** | |
 
-**Integration Tests:** 1 end-to-end test (requires running server)
+**Doc Tests:** 7 passed, 1 ignored
+
+**Integration Tests:** 3 end-to-end tests (requires running server)
 
 ```bash
 # Generate coverage report (requires cargo-llvm-cov)

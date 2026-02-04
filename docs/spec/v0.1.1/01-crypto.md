@@ -501,7 +501,7 @@ pub enum CryptoError {
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Generated: NeuralKey::generate()
+    [*] --> Generated: NeuralKey.generate()
     Generated --> Validated: validate_entropy()
     Validated --> Split: split_neural_key()
     Split --> Distributed: Shards sent to custodians
@@ -533,15 +533,15 @@ stateDiagram-v2
     state ClassicalKeys {
         MachineSeedDerived --> SigningSeedDerived: derive_machine_signing_seed()
         MachineSeedDerived --> EncryptionSeedDerived: derive_machine_encryption_seed()
-        SigningSeedDerived --> Ed25519Created: Ed25519KeyPair::from_seed()
-        EncryptionSeedDerived --> X25519Created: X25519KeyPair::from_seed()
+        SigningSeedDerived --> Ed25519Created: Ed25519KeyPair.from_seed()
+        EncryptionSeedDerived --> X25519Created: X25519KeyPair.from_seed()
     }
     
     state PqKeys {
         MachineSeedDerived --> PqSignSeedDerived: derive_machine_pq_signing_seed()
         MachineSeedDerived --> PqKemSeedDerived: derive_machine_pq_kem_seed()
-        PqSignSeedDerived --> MlDsaCreated: MlDsaKeyPair::from_seed()
-        PqKemSeedDerived --> MlKemCreated: MlKemKeyPair::from_seed()
+        PqSignSeedDerived --> MlDsaCreated: MlDsaKeyPair.from_seed()
+        PqKemSeedDerived --> MlKemCreated: MlKemKeyPair.from_seed()
     }
     
     Ed25519Created --> MachineKeyPairReady
